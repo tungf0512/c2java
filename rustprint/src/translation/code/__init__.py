@@ -1,7 +1,7 @@
-from rustprint.src.translation.code.c2rust_generator import C2RustGenerator
-from rustprint.src.translation.code.c2rust_orchestrator import C2RustOrchestrator
+from rustprint.src.translation.code.c2java_generator import C2JavaGenerator
+from rustprint.src.translation.code.c2java_orchestrator import C2JavaOrchestrator
 
 __all__ = [
-    "C2RustGenerator",
-    "C2RustOrchestrator",
+    "C2JavaGenerator",
+    "C2JavaOrchestrator",
 ]

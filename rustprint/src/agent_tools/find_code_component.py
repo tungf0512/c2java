@@ -20,9 +20,32 @@ def _resolve_rust_root(deps: Union[C2RustDeps, SketchDocDeps, RefinementDeps, Te
 
 async def find_code_component(
     ctx: RunContext[Union[C2RustDeps, SketchDocDeps, RefinementDeps, TestTransDeps, ExecutionRefinementDeps]],
-    pattern: str,
+    pattern: Optional[str] = None,
     path_in_repo: str = ".",
+    path: Optional[str] = None,
+    component_ids: Optional[list[str]] = None,
 ) -> str:
+    if path is not None:
+        path_in_repo = path
+
+    # Handle cases where the LLM confused find_code_component with read_code_components
+    if not pattern and component_ids:
+        results = []
+        components_map = getattr(ctx.deps, "components", {})
+        for component_id in component_ids:
+            if not component_id:
+                continue
+            if component_id not in components_map:
+                results.append(f"# Component {component_id} not found")
+            else:
+                results.append(f"# Component {component_id}:\n{components_map[component_id].source_code.strip()}\n\n")
+        if results:
+            return "\n".join(results)
+        return "No component_ids specified or found."
+
+    if not pattern:
+        return "Error: pattern is required for find_code_component."
+
     deps = ctx.deps
     rust_root = _resolve_rust_root(deps)
 

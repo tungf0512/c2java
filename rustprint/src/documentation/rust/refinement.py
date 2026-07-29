@@ -18,113 +18,111 @@ from rustprint.src.llm_services import create_main_model
 from rustprint.src.agent_tools.str_replace_editor import str_replace_editor_tool
 from rustprint.src.agent_tools.find_code_component import find_code_component_tool
 from rustprint.src.agent_tools.deps import RefinementDeps
-from rustprint.src.agent_tools.cargo_check import cargo_check_tool, cargo_fix_tool
-from rustprint.src.agent_tools.unsafe_detect import unsafe_detect_tool
+from rustprint.src.agent_tools.maven_compile import maven_compile_tool
+from rustprint.src.agent_tools.java_risk_detect import java_risk_detect_tool
 from rustprint.src.config import Config
 from rustprint.src.utils import file_manager
 
 
-REFINEMENT_SYSTEM_PROMPT = """You are an expert Rust code refinement agent.
+REFINEMENT_SYSTEM_PROMPT = """You are an expert Java code refinement agent.
 
 <ROLE>
-We have completed a comparison between C code documentation (official reference) and Rust code documentation (generated from translated Rust code). The evaluation has identified mismatches between what the C documentation describes and what the Rust implementation provides. Your task is to fix the Rust code to match the requirements from the C documentation.
+We have completed a comparison between C code documentation (official reference) and Java documentation (generated from translated Java code). The evaluation has identified mismatches between what the C documentation describes and what the Java implementation provides. Your task is to fix the Java code to match the requirements from the C documentation.
 </ROLE>
 
 <WORKFLOW_CONTEXT>
 1. C code documentation (official reference) was analyzed
-2. Rust code was generated from C code
-3. Documentation was generated from the Rust code
-4. Evaluation compared Rust documentation vs C documentation and found mismatches
-5. You are provided with evaluation reasoning that describes mismatches between C docs and Rust docs
-6. Your job: Fix the Rust code based on these mismatches
+2. Java code was generated from C code
+3. Documentation was generated from the Java code
+4. Evaluation compared Java documentation vs C documentation and found mismatches
+5. You are provided with evaluation reasoning that describes mismatches between C docs and Java docs
+6. Your job: Fix the Java code based on these mismatches
 </WORKFLOW_CONTEXT>
 
 <CRITICAL_RULES>
-- This phase is refinement only: fix existing Rust code to align with C documentation. Do NOT translate new code from C or add new modules; only modify the existing Rust codebase.
-- Do NOT generate or add tests. Tests are generated in a separate phase afterward. Do not create #[cfg(test)], mod tests { }, #[test], or any test files; production code only.
+- This phase is refinement only: fix existing Java code to align with C documentation. Do NOT translate new code from C or add new modules; only modify the existing Java codebase.
+- Do NOT generate or add tests. Tests are generated in a separate phase afterward. Production code only.
+- Production Java must remain standard-library-only. Do not add Lombok, Guava, Apache Commons, native bindings, code generators, or other production dependencies.
 </CRITICAL_RULES>
 
 <WHAT_YOU_RECEIVE>
 1. Requirement hierarchy showing context
-2. Evaluation reasoning describing the mismatch between C docs and Rust docs
+2. Evaluation reasoning describing the mismatch between C docs and Java docs
 3. Evidence from documentation comparison
 4. Current score vs expected weight
-5. Access to Rust codebase via str_replace_editor tool
+5. Access to Java codebase via str_replace_editor tool
 </WHAT_YOU_RECEIVE>
 
 <YOUR_RESPONSIBILITIES>
-1. Read the evaluation reasoning to understand the mismatch between C and Rust documentation
-2. Use str_replace_editor to view the relevant Rust source files (.rs files)
-3. Analyze the current Rust implementation
-4. Determine if the Rust code actually needs changes:
+1. Read the evaluation reasoning to understand the mismatch between C and Java documentation
+2. Use str_replace_editor to view the relevant Java source files (.java files)
+3. Analyze the current Java implementation
+4. Determine if the Java code actually needs changes:
    - If mismatch is due to documentation generation errors but code is correct → No changes needed
-   - If Rust code doesn't match C requirements → Fix the code
-5. Modify the Rust code: struct definitions, function signatures, function implementations, type definitions, etc.
-6. After each file create or edit, call unsafe_detect(crate='<current_module_name>'), then cargo_check(scope='workspace'). Fix errors and minimize unsafe until "Done." Do not accumulate edits without checking.
-7. Ensure all changes are syntactically correct and maintain code quality; prefer safe Rust and avoid unsafe when possible.
-8. Adjust/create the .md files to ensure that it depicts clearly all the features, usages, key architecture or any other relevant information in detail, you also need to update the .md files to ensure that it is up to date with the latest changes in the Rust code.
+   - If Java code doesn't match C requirements → Fix the code
+5. Modify Java records/classes/enums/methods/package structure as needed.
+6. After each file create or edit, call java_risk_detect(module='<current_module_name>'), then maven_compile(working_dir='.'). Fix errors and risky patterns before continuing.
+7. Ensure all changes are syntactically correct and idiomatic Java 17+: cohesive classes, records for pure data, encapsulated mutable state, no giant procedural utility class unless the module is truly stateless.
+8. Adjust/create the .md files only when needed to keep documentation aligned with Java code changes.
 
 </YOUR_RESPONSIBILITIES>
 
 <CRITICAL_CONSTRAINTS>
-- You can ONLY work with Rust source code files (.rs files)
-- You MUST use working_dir="rust_repo" for all operations
-- If the Rust code already matches the C documentation requirements, do nothing
-- Focus on alignment between Rust implementation and C documentation
-- Code must be as safe as possible: aim for 100% safe Rust. Verify with unsafe_detect after edits; minimize or remove unsafe. If cargo_check returns <CARGO_CHECK_WARNINGS> that mention unsafe (e.g. unsafe blocks, unsafe fn, dereferencing raw pointers), do not ignore them — fix the code to address those warnings. Only keep unsafe when there is no sound safe alternative.
+- You can work with Java source files (.java) and Maven files (pom.xml) only when build configuration must change.
+- You MUST use working_dir="rust_repo" for code operations; this is the legacy tool alias for the translated Java repository.
+- If the Java code already matches the C documentation requirements, do nothing.
+- Focus on alignment between Java implementation and C documentation.
+- Strictly avoid sun.misc.Unsafe, jdk.internal.misc.Unsafe, JNI/native methods, System.exit, Runtime.exec, ProcessBuilder, and setAccessible(true) unless no Java translation is mathematically possible.
 </CRITICAL_CONSTRAINTS>
 
 <AVAILABLE_TOOLS>
-You have full access to str_replace_editor tool with working_dir="rust_repo":
+You have full access to str_replace_editor tool with working_dir="rust_repo" (translated Java repository):
 
-1. view: Read Rust source files to understand current implementation
-   str_replace_editor(command="view", working_dir="rust_repo", path="src/main.rs")
-   str_replace_editor(command="view", working_dir="rust_repo", path="src/lib.rs", view_range=[1, 50])
+1. view: Read Java source files to understand current implementation
+   str_replace_editor(command="view", working_dir="rust_repo", path="src/main/java/com/example/App.java")
 
 2. str_replace: Modify existing code by replacing old code with new code
    str_replace_editor(
        command="str_replace",
        working_dir="rust_repo",
-       path="src/module.rs",
-       old_str="pub fn old_function(x: i32) -> i32 {\\n    x + 1\\n}",
-       new_str="pub fn new_function(x: i32, y: i32) -> i32 {\\n    x + y\\n}"
+       path="src/main/java/com/example/Calculator.java",
+       old_str="return x + 1;",
+       new_str="return x + y;"
    )
 
 3. insert: Add new code at a specific line number
    str_replace_editor(
        command="insert",
        working_dir="rust_repo",
-       path="src/module.rs",
+       path="src/main/java/com/example/Calculator.java",
        insert_line=10,
-       new_str="pub fn new_helper() -> bool {\\n    true\\n}"
+       new_str="private int clamp(int value) {\\n    return Math.max(0, value);\\n}"
    )
 
-4. create: Create new Rust files
+4. create: Create new Java files
    str_replace_editor(
        command="create",
        working_dir="rust_repo",
-       path="src/new_module.rs",
-       file_text="pub struct NewStruct {\\n    pub field: i32,\\n}"
+       path="src/main/java/com/example/Point.java",
+       file_text="package com.example;\\n\\npublic record Point(int x, int y) {}\\n"
    )
 
-5. unsafe_detect(crate='<current_module_name>'): Scan the Rust repo for files containing unsafe and return which files have how many (e.g. FILE src/lib.rs has 2 unsafe block(s)). Call after every file create or str_replace/insert. Use the current repo/module name (current_module_name) as crate. Minimize unsafe; only keep unsafe when there is no better solution. After each edit the order is: first unsafe_detect(crate=...), then cargo_check(scope='workspace').
+5. java_risk_detect(module='<current_module_name>'): Scan Java files for risky/non-portable patterns. Call after every file create or str_replace/insert.
 
-6. cargo_check(scope='workspace'): Run cargo check for the full repo (same as: cd repo_root && cargo check). Call after unsafe_detect following every create or edit; do not accumulate edits without checking. If errors, fix and call again until "Done." When the tool returns <CARGO_CHECK_WARNINGS>: you MUST fix any warning that mentions unsafe (unsafe blocks, unsafe fn, raw pointers, etc.); for other warnings, fix if they make the code cleaner, otherwise you may proceed.
+6. maven_compile(working_dir='.'): Run Maven compile for the Java project. Call after java_risk_detect following every create/edit; fix errors and call again until "Done."
 
-7. cargo_fix(crate_name='<crate_name>'): Run `cargo fix --lib -p <crate_name>` at workspace root. Use when cargo check stderr contains (a) a line like "run `cargo fix --lib -p CRATE_NAME` to apply N suggestion(s)" — then run cargo_fix(crate_name='CRATE_NAME'); or (b) a suggestion like "help: first cast to a pointer `as *const ()`" (these fixes are safe). After cargo_fix, run cargo_check again to confirm.
-
-8. find_code_component(pattern, path_in_repo='.'):
-    - Search inside rust_repo using grep -R to find where symbols/snippets are implemented
+7. find_code_component(pattern, path_in_repo='.'):
+    - Search inside the translated Java repository to find where symbols/snippets are implemented
     - Use this before view/str_replace when exact file path is unknown
 
-Note: After every file create or edit, call in this order: (1) unsafe_detect(crate='<current_module_name>'), (2) cargo_check(scope='workspace'). If <CARGO_CHECK_WARNINGS> suggests running cargo fix for a crate, call cargo_fix(crate_name='...') then cargo_check again. Change code first, then check unsafe, then cargo check.
+Note: After every file create or edit, call in this order: (1) java_risk_detect(module='<current_module_name>'), (2) maven_compile(working_dir='.'). Do not accumulate edits without checking.
 </AVAILABLE_TOOLS>
 
 <IMPORTANT_DECISION_LOGIC>
-1. Read evaluation reasoning carefully - it describes mismatch between C docs and Rust docs
+1. Read evaluation reasoning carefully - it describes mismatch between C docs and Java docs
 2. Check if the mismatch is real or just a documentation generation issue
-3. If Rust code already implements what C docs describe → Do nothing
-4. If Rust code differs from C docs → Fix the code
+3. If Java code already implements what C docs describe → Do nothing
+4. If Java code differs from C docs → Fix the code
 </IMPORTANT_DECISION_LOGIC>
 """
 def _resolve_repo_dir(base: Path, name: str) -> Path:
@@ -157,7 +155,7 @@ class SketchRefinementOrchestrator:
             self.model,
             name="sketch_refinement_agent",
             deps_type=RefinementDeps,
-            tools=[str_replace_editor_tool, unsafe_detect_tool, cargo_check_tool, cargo_fix_tool, find_code_component_tool],
+            tools=[str_replace_editor_tool, java_risk_detect_tool, maven_compile_tool, find_code_component_tool],
             system_prompt=REFINEMENT_SYSTEM_PROMPT,
             retries=2,
             end_strategy='early',
@@ -266,9 +264,9 @@ class SketchRefinementOrchestrator:
         )
         
         user_prompt = self.format_requirement_context(path, requirement)
-        user_prompt += f"\nCurrent repo (use for unsafe_detect crate parameter): {repo_name}\n"
-        user_prompt += "\nTASK: Analyze the Rust codebase and make necessary code changes to satisfy this requirement.\n"
-        user_prompt += "Start by viewing relevant files to understand the current implementation. After each file create or edit, call unsafe_detect(crate='"+repo_name+"'), then cargo_check(scope='workspace'); fix until Done.\n"
+        user_prompt += f"\nCurrent repo/module (use for java_risk_detect module parameter): {repo_name}\n"
+        user_prompt += "\nTASK: Analyze the Java codebase and make necessary code changes to satisfy this requirement.\n"
+        user_prompt += "Start by viewing relevant files to understand the current implementation. After each file create or edit, call java_risk_detect(module='"+repo_name+"'), then maven_compile(working_dir='.'); fix until Done.\n"
         
         try:
             logger.info("Starting agent refinement...")
@@ -465,7 +463,7 @@ async def main():
     from rustprint.src.config import Config, LLM_BASE_URL, LLM_API_KEY
 
     parser = argparse.ArgumentParser(
-        description='Refine Rust code based on evaluation results'
+        description='Refine Java code based on evaluation results'
     )
     parser.add_argument(
         '--version',
@@ -501,7 +499,7 @@ async def main():
     )
     
     logger.info("="*80)
-    logger.info("Rust Code Refinement")
+    logger.info("Java Code Refinement")
     logger.info("="*80)
     logger.info(f"Source Version: {args.version}")
     logger.info(f"Target Version: {args.version + 1}")

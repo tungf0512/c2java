@@ -43,7 +43,7 @@ IMPORTANT - File Creation:
 - You should call `read_code_components` before creating `{module_name}.md`
 - You MUST create the main documentation file: `{module_name}.md`
 - Use working_dir='c_doc' for C code documentation
-- Use working_dir='rust_doc' for Rust code documentation
+- Use working_dir='rust_doc' for translated Java code documentation (legacy tool alias for target docs)
 - The file MUST be saved with str_replace_editor tool using command='create'
 - Filename MUST exactly match the module name: `{module_name}.md`
 - DO NOT create files with different names or in wrong working directories
@@ -95,7 +95,7 @@ Generate documentation following the following requirements:
 - You MUST call `read_code_components` before creating `{module_name}.md`
 - You MUST create the main documentation file: `{module_name}.md`
 - Use working_dir='c_doc' for C code documentation
-- Use working_dir='rust_doc' for Rust code documentation
+- Use working_dir='rust_doc' for translated Java code documentation (legacy tool alias for target docs)
 - The file MUST be saved with str_replace_editor tool using command='create'
 - Filename MUST exactly match the module name: `{module_name}.md`
 - DO NOT create files with different names or in wrong working directories
@@ -173,8 +173,8 @@ Here is list of all potential core components of the repository (It's normal tha
 </POTENTIAL_CORE_COMPONENTS>
 
 Please group the components into groups such that each group is a set of components that are closely related to each other and together they form a module. DO NOT include components that are not essential to the repository.
-The output module names will be used as Rust crate/module names in C→Rust translation, so choose concise, stable, idiomatic snake_case names.
-The output path of each group must reflect an idiomatic Rust file/module partitioning boundary and represent the best crate/module ownership location for that group.
+The output module names will be used as Java package/module names in C→Java translation, so choose concise, stable names that can become Maven artifactIds and Java package segments.
+The output path of each group must reflect an idiomatic Java package/module boundary and represent the best ownership location under `src/main/java/...`.
 Firstly reason about the components and then group them and return the result in the following format:
 <GROUPED_COMPONENTS>
 {{
@@ -212,8 +212,8 @@ Here is list of all potential core components of the module {module_name} (It's 
 </POTENTIAL_CORE_COMPONENTS>
 
 Please group the components into groups such that each group is a set of components that are closely related to each other and together they form a smaller module. DO NOT include components that are not essential to the module.
-The output module names will be used as Rust crate/module names in C→Rust translation, so choose concise, stable, idiomatic snake_case names.
-The output path of each group must reflect an idiomatic Rust file/module partitioning boundary and represent the best crate/module ownership location for that group.
+The output module names will be used as Java package/module names in C→Java translation, so choose concise, stable names that can become Maven artifactIds and Java package segments.
+The output path of each group must reflect an idiomatic Java package/module boundary and represent the best ownership location under `src/main/java/...`.
 
 Firstly reason based on given context and then group them and return the result in the following format:
 <GROUPED_COMPONENTS>
@@ -384,12 +384,12 @@ def format_cluster_prompt(potential_core_components: str, module_tree: dict[str,
 
 PLANNER_PROMPT = """
 <ROLE>
-You are a C to Rust translation planner. Your job is to analyze C code and create a detailed implementation plan for generating Rust code.
+You are a C to Java translation planner. Your job is to analyze C code and create a detailed implementation plan for generating idiomatic Java 17+ code.
 </ROLE>
 
 <OBJECTIVE>
 Analyze the C module using documentation and source code, then create a comprehensive translation plan in Markdown format.
-This plan will guide the implementation agent to generate actual working Rust code with real logic, not skeleton code.
+This plan will guide the implementation agent to generate actual working Java code with real logic, not skeleton code.
 </OBJECTIVE>
 
 <WORKFLOW>
@@ -397,246 +397,172 @@ This plan will guide the implementation agent to generate actual working Rust co
 2. Use read_code_components to explore C components in <C_COMPONENTS>
 3. Explore dependencies beyond listed components using read_code_components
 4. Optionally use str_replace_editor(working_dir='c_repo', command='view') to read detailed C source files
-5. Create IMPLEMENTATION_PLAN.md using:
-   str_replace_editor(
-       working_dir='rust_repo',
-       command='create',
-    path='./IMPLEMENTATION_PLAN.md',
-    file_text='<complete plan content>'
-)
+5. Create IMPLEMENTATION_PLAN.md using str_replace_editor(working_dir='rust_repo', command='create', path='./IMPLEMENTATION_PLAN.md', file_text='<complete plan content>')
+   Note: working_dir='rust_repo' is the current tool alias for the translated Java repository.
 </WORKFLOW>
 
-<AVAILABLE_TOOLS>
-1. read_documentation_tool: Read the documentation files listed in <DOCUMENTATION_FILES>
-
-2. read_code_components: Explore high-level C components mentioned in <C_COMPONENTS>
-
-3. str_replace_editor with working_dir='c_repo': Read detailed C source code
-   - view: Read C source files to understand implementation details
-   - Only view command is allowed for c_repo (read-only)
-   
-4. str_replace_editor with working_dir='rust_repo': Create IMPLEMENTATION_PLAN.md
-   - view: Check existing translated Rust code structure
-   - create: Create the IMPLEMENTATION_PLAN.md file
-   Note: rust_repo refers to the current module output directory being generated
-
-5. find_code_component(pattern, path_in_repo='.'):
-    - Search inside rust_repo using grep -R to find where symbols/snippets are implemented
-    - Use this before view/str_replace when you do not know exact file paths
-</AVAILABLE_TOOLS>
-
 <CRITICAL_RULES>
-- Do NOT include test generation, test plans, test code, or test sections in the implementation plan. Tests will be generated in a separate phase afterward. The plan must cover only production Rust code and module structure.
-- All translated code must be 100% safe Rust: no unsafe blocks, no unsafe fn. Rely on Rust's type system and borrow checker for memory safety.
+- Do NOT include test generation, test plans, test code, or test sections in the implementation plan. Tests are generated later.
+- Production Java must use only the Java standard library. Do not plan Lombok, Guava, Apache Commons, external JSON libraries, native bindings, or any other production dependency.
+- Plan for Java 17+ and Maven. Every Java source file must live under `src/main/java/<base/package>/...`.
+- Infer a stable base package name from the repository/module name, for example `com.migration.generated.<sanitized_repo_or_module>`. Every `.java` file must declare a matching package.
+- Map pure C structs that only carry data to Java `record` types. Use standard `class` when the C struct has meaningful mutable state, lifecycle, invariants, or behavior.
+- Group related C functions into cohesive Java classes. Avoid one giant procedural utility class unless the C module is genuinely stateless.
+- Strictly avoid `sun.misc.Unsafe`, `jdk.internal.misc.Unsafe`, JNI/native methods, `System.exit`, `Runtime.exec`, `ProcessBuilder`, and reflection access such as `setAccessible(true)` unless no Java translation is mathematically possible.
 - Write the plan and any code snippets in English.
 </CRITICAL_RULES>
 
 <PLAN_STRUCTURE>
-Structure the implementation plan as follows:
-
 1. Overview
    - Module purpose and functionality summary
-   - Translation approach and key considerations
+   - C-to-Java translation approach and key semantic decisions
+   - Inferred base package name
 
-2. Directory Structure Tree
-   - Complete folder hierarchy for this module
-   - Proposed structure for sub-modules
-   - Organization of component types (types, handlers, utilities, etc.)
+2. Maven and Directory Structure
+   - `pom.xml` plan for Java 17+ compilation
+   - `src/main/java/<base/package>/...` hierarchy
+   - Proposed packages, classes, records, enums, and interfaces
 
 3. Detailed Component Specifications
-   
-  Provide thorough descriptions (5-10 lines) for each module, sub-module, and file.
-   Write from general to specific details, covering:
-   - Purpose and responsibilities
-   - Role within the module
-   - Interactions with other modules/components
-   - Key functionality provided
-   
-   For each sub-module:
-   - Name of the sub-module
-   - Detailed description (5-10 lines):
-     * General purpose of this sub-module
-     * What problem it solves
-     * Its role in the overall module
-     * Which other sub-modules it depends on
-     * Which other sub-modules depend on it
-     * Key capabilities it provides
-   - List of files in this sub-module
-   
-   For each file:
-   - File path and name (e.g., src/core/types.rs)
-   - Detailed description (5-10 lines):
-     * General purpose of this file
-     * What it implements and why
-     * Its role within the sub-module
-     * How it interacts with other files
-     * What components depend on it
-     * Key responsibilities
-   - Structs defined in this file (with field descriptions)
-   - Enums defined in this file (with variant descriptions)
-   - Functions implemented (with signatures and descriptions)
-   - Dependencies and imports required
+   For each Java package/class/file:
+   - File path and name, e.g. `src/main/java/com/example/core/BufferSlice.java`
+   - Responsibility and relationship to C components
+   - Whether C structs map to `record` or `class`, with reasoning
+   - Public methods, constructors/factory methods, and error-handling behavior
+   - Encapsulation strategy and mutable-state ownership
 
 4. Architecture and Interactions
-   - System architecture diagram (mermaid)
-   - Component interaction flows (mermaid)
-   - Data flow between modules (mermaid)
-   - Module boundaries and public interfaces
+   - System architecture diagram
+   - Component interaction flows
+   - Data flow between packages/classes
+   - Public interfaces and integration points
 
 5. API Specifications
-   - Public interfaces exposed by this module
-   - Function signatures and usage examples
-   - Integration points with other modules
-   - Error handling patterns
+   - Public Java APIs exposed by this module
+   - Method signatures and usage examples
+   - Exception or return-value strategy for C error codes
 </PLAN_STRUCTURE>
 """
 
 SKELETON_PROMPT = """
-You are a Rust code implementation agent. Your job is to read an implementation plan and generate actual working Rust code with real implementations.
+You are a Java 17+ implementation agent. Your job is to read IMPLEMENTATION_PLAN.md and generate actual working Java code with real implementations.
 
 <ROLE>
-Read the IMPLEMENTATION_PLAN.md and translate it into actual Rust code with proper structure, types, and working function implementations.
-Generate real code with actual logic translated from C, not skeleton code with unimplemented!() placeholders.
+Translate C logic into idiomatic Java using Maven project structure, cohesive classes, records for pure data, and standard-library-only production code.
 </ROLE>
 
-<CONSTRAINT>
-- Do NOT use unsafe Rust code blocks. The generated code must be 100% SAFE Rust. All memory safety must be guaranteed by Rust's type system and borrow checker. Never emit `unsafe` keyword.
-- Do NOT generate any tests. Tests are generated in a separate phase. In this phase write production Rust only: no #[cfg(test)], no mod tests { }, no #[test] fn ..., no test code inside any .rs file. Do not add test blocks at the end of files. If you see test code in a plan or example, do not copy it into your output.
-- Adjust/create the .md files (README.md,...) to ensure that it depicts clearly all the features, usages, key architecture or any other relevant information, you also need to update the .md files to ensure that it is up to date with the latest changes in the Rust code.
-</CONSTRAINT>
+<CONSTRAINTS>
+- Production code must have zero third-party dependencies. Do not use Lombok, Guava, Apache Commons, external logging libraries, native bindings, or code generators.
+- The only allowed non-JDK dependency is JUnit 5 for tests, and only with `<scope>test</scope>` when test support is configured.
+- Do NOT generate tests in this phase. Write production Java only under `src/main/java/...`.
+- Every Java file must use `.java`, a valid package declaration, and a path matching that package.
+- Prefer Java records for pure immutable C data structs. Use classes for behavior, mutable state, invariants, resource management, or complex construction.
+- Use encapsulation: private fields, clear constructors/factories, small cohesive classes, and package-private helpers where appropriate.
+- Avoid massive procedural utility classes. Group related C functions around domain concepts.
+- Strictly forbid `sun.misc.Unsafe`, `jdk.internal.misc.Unsafe`, JNI/native methods, `System.exit`, `Runtime.exec`, `ProcessBuilder`, and `setAccessible(true)` unless no Java translation is mathematically possible.
+</CONSTRAINTS>
 
-<CRITICAL_RULES>
-1. Follow IMPLEMENTATION_PLAN.md structure exactly
-   - Read the "Directory Structure" section
-   - Create all directories as specified
-   - Create all files as specified
-   
-2. All Rust source files must have .rs extension
-   - src/lib.rs
-   - src/core/types.rs
-   - src/bitmap/mod.rs
-   - Never create files without extension
+<STRICT_COMPLIANCE>
+- You MUST read and implement the EXACT classes, records, and method signatures defined in `IMPLEMENTATION_PLAN.md`.
+- NEVER generate placeholder classes like `DummyClass`, `Main`, or `Example`.
+- If the plan specifies a `Point` record and an `add_points` method, your Java code MUST contain exactly those names and logic.
+- Do NOT skip the core translation logic.
+- The output is invalid if it only contains scaffolding, generic sample code, or unrelated helper classes.
+</STRICT_COMPLIANCE>
 
-3. Implement actual working code
-   - Translate C logic to idiomatic Rust
-   - Implement real function bodies with actual logic
-   - Use proper error handling (Result types, etc.)
-   - Add comments explaining implementation details
-</CRITICAL_RULES>
-      
 <AVAILABLE_TOOLS>
-1. str_replace_editor with working_dir='rust_repo': Full access to translated Rust repository
-   - view: Check existing Rust code to understand current progress
-   - create: Create new Rust files (.rs, Cargo.toml, README.md)
-   - str_replace: Modify existing Rust files when needed (e.g., if translating one component affects previously translated code)
-   - insert: Add code to existing files
-   Note: Folders are automatically created when creating files with paths
+1. str_replace_editor with working_dir='rust_repo': Full access to the translated Java repository (legacy tool alias)
+   - view: Read current Java/Maven files
+   - create: Create `.java`, `pom.xml`, README.md, and other project files
+   - str_replace / insert: Modify existing Java or Maven files
 
 2. str_replace_editor with working_dir='c_repo': Read-only access to C source repository
-   - view: Read C source files for implementation details if IMPLEMENTATION_PLAN.md lacks clarity
-   - Only view command is allowed for c_repo (read-only)
 
 3. read_code_components: Explore C component dependencies for implementation details
 
 4. read_documentation_tool: Reference C documentation if needed
 
-5. find_code_component(pattern, path_in_repo='.'):
-    - Search inside rust_repo using grep -R to find where symbols/snippets are implemented
-    - Use this before editing when you do not know the exact file location
+5. find_code_component(pattern, path_in_repo='.'): Search inside the translated Java repository
 
-6. unsafe_detect(crate='<current_crate_name>'): Scan the current crate for files containing unsafe and return which files have how many (e.g. FILE src/lib.rs has 2 unsafe block(s)). Call after every file create or str_replace/insert. Use the current crate name from context. Minimize unsafe; only keep unsafe when there is no better solution. After each edit the order is: first unsafe_detect(crate=...), then cargo_check(scope='crate').
+6. java_risk_detect(module='<module_name>'): Scan Java code for risky/non-portable patterns. Call after every file create or edit.
 
-7. cargo_check(scope='crate'): Run `cargo check` for the current crate only (same as: cd <crate_folder> && cargo check). Call after unsafe_detect following every create or edit; do not accumulate edits without checking. If errors, fix and call again until "Done." When the tool returns <CARGO_CHECK_WARNINGS>, fix warnings if they make the code cleaner; otherwise you may proceed.
-
-8. cargo_fix(crate_name='<crate_name>'): Run `cargo fix --lib -p <crate_name>` at workspace root. Use when cargo check stderr contains (a) a line like "run `cargo fix --lib -p CRATE_NAME` to apply N suggestion(s)" — then run cargo_fix(crate_name='CRATE_NAME'); or (b) a suggestion like "help: first cast to a pointer `as *const ()`" (these fixes are safe). After cargo_fix, run cargo_check again to confirm.
+7. maven_compile(working_dir='<path_optional>'): Run Maven compilation (`mvn -q -DskipTests compile`). Call after java_risk_detect following every create/edit; fix errors and repeat until it reports success.
 </AVAILABLE_TOOLS>
 
 <IMPLEMENTATION_WORKFLOW>
-Do not create any test code in this phase: no #[cfg(test)], no mod tests { }, no #[test], no test functions or test files. Production code only.
-After every file create or edit in this crate, call in this order: (1) unsafe_detect(crate='<feature_name>'), (2) cargo_check(scope='crate'). If cargo check stderr suggests "run `cargo fix --lib -p CRATE_NAME`" or shows "help: first cast to a pointer", call cargo_fix(crate_name='CRATE_NAME') then cargo_check again. Translate code first, then check unsafe, then cargo check. 
-
-
-1. Use str_replace_editor(working_dir='rust_repo', command='view', path='./IMPLEMENTATION_PLAN.md') to read the complete plan
-2. Optionally use read_code_components to explore C implementation details
-3. Optionally use str_replace_editor(working_dir='c_repo', command='view') to read C source files if plan is unclear
-4. Create Cargo.toml using str_replace_editor(working_dir='rust_repo', command='create', path='./Cargo.toml')
-   - Set [package] name = "<feature_name>"
-   - Then call unsafe_detect(crate='<feature_name>'), then cargo_check(scope='crate'). If errors or reported unsafe, fix and repeat until "Done." and minimal unsafe.
-5. Implement directory structure following plan's Directory Structure Tree:
-   - Create src/lib.rs as entry point; then call unsafe_detect(crate='<feature_name>'), then cargo_check(scope='crate'); fix until Done and reduce unsafe.
-   - Create mod.rs for each subdirectory and .rs files for types and functions. After each file creation or edit, call unsafe_detect(crate='<feature_name>'), then cargo_check(scope='crate'); fix until Done and minimize unsafe before adding more.
-   - Folders are created automatically when you create files with paths (e.g., path='./src/core/types.rs' creates src/core/ folder)
-6. Write Rust code following Detailed Component Specifications. After each str_replace or insert, call unsafe_detect(crate='<feature_name>'), then cargo_check(scope='crate'); fix errors and reduce unsafe before continuing. Avoid unsafe when there is a better solution.
-7. Create a single README.md only. Use str_replace_editor(working_dir='rust_repo', command='create', path='./README.md'). Then call unsafe_detect(crate='<feature_name>'), then cargo_check(scope='crate') one final time until "Done. cargo check passed." and no unnecessary unsafe remains.
+1. Read `./IMPLEMENTATION_PLAN.md`.
+2. Extract the exact Java packages, classes, records, methods, and file paths required by the plan before creating files.
+3. Create or update `pom.xml` for Java 17+ compilation. Production dependencies must be empty.
+4. Create `src/main/java/<base/package>/...` directories and `.java` files according to the plan.
+5. After every file create or edit, call `java_risk_detect(module='<feature_name>')`, then `maven_compile(working_dir='.')`. Fix risk findings or compile errors before continuing.
+6. Implement real translated logic. No placeholders such as TODO-only methods, empty methods, `throw new UnsupportedOperationException("TODO")`, fake return values, or generic sample classes.
+7. Create/update README.md only after code compiles.
 </IMPLEMENTATION_WORKFLOW>
 """
 
 SYNTHESIS_PROMPT = """
-You are finalizing a Rust workspace translation from C. You are called with a parameter: the list of crate names (from module_tree). Your task is to create root workspace files that tie these crates together.
-
-<PARAMETER>
-You receive crate_names: a list of crate directory names (e.g. ["crate_folder_1", "crate_folder_2"]). This list is provided in the user message under <PARAMETER>. 
-</PARAMETER>
+You are finalizing a Maven Java translation from C. You receive module names from module_tree and must create root project files that tie the generated Java modules together.
 
 <CRITICAL_RULES>
-- Do NOT generate any tests. Only create workspace files (Cargo.toml, README.md, .gitignore). No test code, no tests/ directory.
-- All code must remain 100% safe Rust: no unsafe blocks.
-- Do NOT view the same path more than once. After reading all crates, proceed to synthesize; do not loop on view.
+- Do NOT generate tests here. Only create Maven project files, README.md, and .gitignore.
+- Production dependencies must be empty. Do not add Lombok, Guava, Apache Commons, or other production libraries.
+- If adding test support, JUnit 5 is allowed only as a test dependency with `<scope>test</scope>`.
+- Use Java 17+ compiler settings.
+- Do NOT view the same path more than once. Read the module files you need, then synthesize.
 </CRITICAL_RULES>
 
 <AVAILABLE_TOOLS>
 str_replace_editor with working_dir='rust_repo':
-- view: Read a file. For each crate in the parameter list, cd into that folder by viewing paths under ./<crate_name>/ (e.g. ./allocators/Cargo.toml, ./allocators/README.md, ./cbor/Cargo.toml). Use each path at most once.
-- create: Create workspace files (Cargo.toml, README.md, .gitignore)
+- view: Read module `pom.xml`, README.md, and representative `src/main/java/...` files
+- create: Create root `pom.xml`, README.md, `.gitignore`
 - str_replace, insert: Modify files if needed
 
-find_code_component(pattern, path_in_repo='.'):
-- Search inside rust_repo using grep -R to locate symbols/snippets across crates before viewing/editing
+find_code_component(pattern, path_in_repo='.'): Search inside the translated Java repository
 
-cargo_check(scope='workspace'): Run after creating root files. If errors, fix and call again until "Done."
+java_risk_detect(module='<module_name>'): Scan generated Java files for risky patterns.
 
-cargo_fix(crate_name='<crate_name>'): Run `cargo fix --lib -p <crate_name>`. Use when cargo check stderr says "run `cargo fix --lib -p CRATE_NAME` to apply N suggestion(s)" or shows "help: first cast to a pointer `as *const ()`" — then run cargo_fix(crate_name='CRATE_NAME') and cargo_check again.
+maven_compile(working_dir='.'): Run Maven compilation for the workspace. Fix errors until it reports success.
 </AVAILABLE_TOOLS>
 
 <WORKFLOW>
-Phase 1 — Read each crate. For each crate name in the parameter list (crate_names), cd into that folder: view ./<crate_name>/Cargo.toml once, then ./<crate_name>/README.md if present, then key files (e.g. ./<crate_name>/src/lib.rs) as needed. View each path at most once. Do not view path='.'; use the parameter list. Complete all crates then go to Phase 2.
+Phase 1 - Read module structure. For each module name in the parameter list, inspect its `pom.xml`, README.md if present, and key files under `src/main/java/...`.
 
-Phase 2 — Synthesize. Create root Cargo.toml with members = [list from parameter], resolver = "2", [workspace.package] edition = "2021". Create README.md, .gitignore. Call cargo_check(scope='workspace'); fix until "Done. cargo check passed."
+Phase 2 - Synthesize Maven root files. Create either:
+- a single-module root `pom.xml`, or
+- a Maven aggregator parent `pom.xml` with `<packaging>pom</packaging>` and `<modules>` entries.
+
+The POM must configure Java 17+ compilation. If test support is included, add JUnit Jupiter only under test scope and configure Surefire. Then call `java_risk_detect(module='workspace')` and `maven_compile(working_dir='.')`.
 """
 
 
 SKETCH_DOC_LEAF_PROMPT = """
-You are generating high-level documentation for a Rust module.
+You are generating high-level documentation for a Java module.
 
 <ROLE>
-Create high-level feature-focused documentation for a leaf module (module with no children) in a Rust project.
-Analyze the Rust code to understand and document its high-level features and capabilities, not individual functions.
+Create feature-focused documentation for a leaf module in a Java/Maven project.
+Analyze Java packages, classes, records, and public APIs to document high-level features and capabilities, not individual method listings.
 </ROLE>
 
 <CRITICAL_RULES>
-- Do NOT generate test documentation, test examples, test sections, or any content about tests. Tests will be generated in a separate phase afterward. Document only production features and APIs.
-- When using working_dir='rust_doc', the path argument must be a simple relative path only (e.g. ./module_name.md or module_name.md). Never use full absolute paths or paths containing system directories (e.g. /Users/..., Users/..., /home/...). Wrong path causes files to be created in the wrong place.
+- Do NOT generate test documentation, test examples, test sections, or any content about tests. Document only production features and APIs.
+- When using working_dir='rust_doc', the path argument must be a simple relative path only. This is the legacy tool alias for target Java docs.
 </CRITICAL_RULES>
 
 <AVAILABLE_TOOLS>
 str_replace_editor with working_dir='rust_repo':
-- view: Read Rust module components to understand functionality
-- Find module location in repository and explore its structure
+- view: Read Java module components, `pom.xml`, and `src/main/java/...`
 
 find_code_component(pattern, path_in_repo='.'):
-- Search inside rust_repo using grep -R to locate module files and symbols quickly
+- Search inside the translated Java repository
 
 str_replace_editor with working_dir='rust_doc':
-- view: Read existing documentation (path: simple relative, e.g. ./overview.md or module_name.md)
-- create: Create new documentation file (path: simple relative only, e.g. ./module_name.md)
-- str_replace: Modify documentation content (path: simple relative only)
-- insert: Add content to documentation (path: simple relative only)
+- view/create/str_replace/insert documentation files using simple relative paths
 </AVAILABLE_TOOLS>
 
 <WORKFLOW>
-1. Explore Rust module structure to find components
-2. Identify high-level features provided by the module
-3. Generate feature-focused documentation
+1. Explore Java package structure and Maven files.
+2. Identify high-level features provided by the module.
+3. Generate feature-focused documentation.
 </WORKFLOW>
 
 <OUTPUT_FORMAT>
@@ -644,231 +570,153 @@ str_replace_editor with working_dir='rust_doc':
 Brief description of module purpose and scope
 
 ## Feature 1: [Feature Name]
-Detailed description of what this feature provides and why it exists
-
-[Mermaid diagram showing feature flow and architecture]
-
-Explanation of how the feature works conceptually
+Detailed feature description and architecture diagram
 
 ## Feature 2: [Feature Name]
-Detailed description of the feature
-
-[Mermaid diagram for this feature]
-
-Feature workflow and component interactions
-
-## Feature 3: [Feature Name]
-...
+Detailed feature description and workflow
 </OUTPUT_FORMAT>
-
-<DOCUMENTATION_REQUIREMENTS>
-- Focus on high-level features.
-- Provide detailed description for each feature
-- Include mermaid flow diagrams for each feature showing architecture and interactions
-- Explain what the module enables users to do
-- Describe why features exist and what problems they solve
-- Show how features work conceptually
-- Use clear, professional technical writing
-</DOCUMENTATION_REQUIREMENTS>
 """
 
 SKETCH_DOC_PARENT_PROMPT = """
-You are generating high-level documentation for a parent Rust module.
+You are generating high-level documentation for a parent Java module.
 
 <ROLE>
-Create high-level feature-focused documentation for a parent module (module with children) in a Rust project.
-Integrate information from children modules while analyzing the parent module to describe high-level features.
+Create feature-focused documentation for a parent module in a Java/Maven project.
+Integrate information from children modules while analyzing Java packages/classes to describe high-level features.
 </ROLE>
 
 <CRITICAL_RULES>
-- Do NOT generate test documentation, test examples, test sections, or any content about tests. Tests will be generated in a separate phase afterward. Document only production features and APIs.
-- When using working_dir='rust_doc', the path argument must be a simple relative path only (e.g. ./module_name.md or module_name.md). Never use full absolute paths or paths containing system directories (e.g. /Users/..., Users/..., /home/...). Wrong path causes files to be created in the wrong place.
+- Do NOT generate test documentation, test examples, test sections, or any content about tests. Document only production features and APIs.
+- When using working_dir='rust_doc', the path argument must be a simple relative path only. This is the legacy tool alias for target Java docs.
 </CRITICAL_RULES>
 
 <AVAILABLE_TOOLS>
 str_replace_editor with working_dir='rust_repo':
-- view: Read Rust module components to understand functionality
-- Find module location in repository and explore its structure
+- view: Read Java module components, `pom.xml`, and `src/main/java/...`
 
 find_code_component(pattern, path_in_repo='.'):
-- Search inside rust_repo using grep -R to locate module files and symbols quickly
+- Search inside the translated Java repository
 
 str_replace_editor with working_dir='rust_doc':
-- view: Read existing documentation (path: simple relative, e.g. ./overview.md or module_name.md)
-- create: Create new documentation file (path: simple relative only, e.g. ./module_name.md)
-- str_replace: Modify documentation content (path: simple relative only)
-- insert: Add content to documentation (path: simple relative only)
+- view/create/str_replace/insert documentation files using simple relative paths
 
 read_documentation:
 - Read already generated documentation for children modules
 </AVAILABLE_TOOLS>
 
 <WORKFLOW>
-1. Explore Rust module structure to find components
-2. Read children documentation to understand their features
-3. Identify high-level features provided by parent module and how children integrate
-4. Generate feature-focused documentation
+1. Explore Java package structure.
+2. Read children documentation to understand their features.
+3. Identify parent-level features and integration behavior.
+4. Generate feature-focused documentation.
 </WORKFLOW>
-
-<OUTPUT_FORMAT>
-## Overview
-Brief description of module purpose and scope
-
-## Feature 1: [Feature Name]
-Detailed description of what this feature provides and why it exists
-
-Sub-features from children modules:
-- Child module A contribution
-- Child module B contribution
-
-[Mermaid diagram showing feature flow and architecture including children integration]
-
-Explanation of how the feature works and how children modules integrate
-
-## Feature 2: [Feature Name]
-Detailed description of the feature
-
-[Mermaid diagram for this feature]
-
-Feature workflow and component interactions across module hierarchy
-
-## Feature 3: [Feature Name]
-...
-</OUTPUT_FORMAT>
-
-<DOCUMENTATION_REQUIREMENTS>
-- Focus on high-level features across the module hierarchy
-- Provide detailed description for each feature
-- Include mermaid flow diagrams for each feature showing architecture and interactions
-- Show how children modules contribute to overall features
-- Explain integration patterns and module coordination
-- Use feature-oriented organization
-- Use clear, professional technical writing
-</DOCUMENTATION_REQUIREMENTS>
 """
 
 
 TEST_TRANS_PROMPT = """
 <ROLE>
-You are a test translation agent. Your job is to translate C test code from the original C repository into Rust tests and add them to the translated Rust repository.
+You are a test translation agent. Your job is to translate C test code from the original C repository into JUnit 5 tests and add them to the translated Java repository.
 </ROLE>
 
 <CONTEXT>
-The C repository has test files under a folder named "test" or "tests". The Rust repository is already translated; you must add Rust tests that correspond to the C tests. Aim to read and translate every test that appears in the C repo; do not skip, omit, or leave out tests (no "..." or partial coverage). Translate fully and completely.
+The C repository has test files under "test" or "tests". The Java repository is already translated; add JUnit tests that correspond to the C tests. Read and translate every discovered test case completely.
 </CONTEXT>
 
 <CRITICAL_RULES>
-- Do NOT create any .md (markdown) files. No README, no documentation, no guides. Only create or modify .rs (Rust) test files. Test translation produces Rust code only.
-- Do NOT modify production code. Only translate and add test code. You may create or edit only test files (e.g. crate_name/tests/*.rs or #[cfg(test)] test modules). Do not use str_replace or insert on non-test source files (e.g. src/lib.rs, src/*.rs that implement the library). If the translated tests do not align with the existing API (e.g. wrong function name, type mismatch), fix the tests to match the code—do not change the production code to match the tests.
-- Write Rust tests that closely match the C tests: same assertions, same inputs and outputs checked, same scenarios and edge cases. Do not simplify, omit, or summarize the C test logic; translate it faithfully.
-- Do not use placeholders. Every test must contain real assertions and logic translated from the C test. No todo!, unimplemented!(), empty test bodies, or comments like "TODO"/"FIXME" instead of real checks. If a C test cannot be fully expressed in Rust (e.g. C-specific behavior), implement the parts that can be and add a brief note; do not leave placeholder code.
+- Do NOT create markdown/documentation files.
+- Do NOT modify production code. Only create or edit test files under `src/test/java/...`.
+- All tests must use JUnit 5 (`org.junit.jupiter.api.Test` and `org.junit.jupiter.api.Assertions`).
+- All tests go under `src/test/java/<matching/package>/...`; never embed tests in production `src/main/java` files.
+- If JUnit is missing, update `pom.xml` to add JUnit Jupiter only with `<scope>test</scope>`.
+- Translate C assertions faithfully using `assertEquals`, `assertTrue`, `assertFalse`, `assertArrayEquals`, `assertThrows`, etc.
+- No placeholders, empty tests, fake assertions, TODO-only tests, or invented tests.
 </CRITICAL_RULES>
 
+<STRICT_API_ALIGNMENT>
+- BEFORE writing any tests, you MUST use `str_replace_editor` with `command='view'` or `find_code_component` to read the generated production Java files under `src/main/java/...`.
+- You MUST use the exact package names, class names, record names, and method signatures found in the production code.
+- If the production code uses a Java `record`, you MUST use record accessors such as `p.x()` and `p.y()`, never field access like `p.x` or `p.y`.
+- NEVER invent inner classes, local stand-ins, fake wrappers, or duplicate model types to represent production classes.
+- Import and use the actual generated production classes.
+</STRICT_API_ALIGNMENT>
+
 <WORKFLOW>
-1. Use str_replace_editor(working_dir='c_repo', command='view', path='tests') or path='test' to discover C test files. If neither exists, try path='.' and look for test-related directories. List all test files and plan to translate every one.
-2. Read every C test file carefully and in full with str_replace_editor(working_dir='c_repo', command='view', path='<relative path>') to understand its test structure, assertions, inputs, and expected outputs before translating.
-3. Use str_replace_editor(working_dir='rust_repo', command='view', path='.') to explore the Rust repo layout. For each C test file, inspect its #include directives and the C file under test to identify which Rust module/crate it maps to.
-4. Translate the tests into the matching Rust crate/module. Do not translate too many at a single time to avoid technical debt — only 2-3 tests, verify they work, then continue.
-5. When encountering an issue, avoid creating a new file (such as current_test_fix.rs); fix the issue in the current test file instead.
-6. For each test in C repository, you must choose placement based on its properties:
-- (1) Tests that exercise internal logic of a single module → insert directly into the corresponding source file as a #[cfg(test)] mod tests { #[test] fn ... } block.
-- (2) Tests that exercise the public API or cross-module behavior → create as bare #[test] functions in '<crate_dir>/tests/<file>.rs'. Do NOT add a #[cfg(test)] wrapper around integration test files. You may create multiple test files for the same crate. The name of the file should be related to functionality of the test. You can create multiple test file, should not append a lot of tests in a single file.
-Do not default to one placement for all — evaluate each test individually.
-- For each test, use the inputs and expected outputs from the C test as the reference. When calling the Rust equivalent, you must adapt to the Rust function's signature — match the correct argument types, number of parameters, and return type. Convert or cast them as needed to be compatible with the Rust API.
-- After every single file create or edit: you MUST call cargo_test_no_run(path_in_repo='<path_you_edited>') first and fix all errors until "Done. cargo test --no-run passed." Then you MUST call cargo_nextest_list(path_in_repo='<path_you_edited>') to verify the tests you just inserted are visible and discoverable — if any are missing, fix placement or #[test] attribute before proceeding. Never accumulate changes across multiple files without both checks passing.
-7. When done with all test files, call cargo_test_no_run() with no arguments. If errors, fix and call again until "Done. cargo test --no-run passed."
+1. Discover C test files with str_replace_editor(working_dir='c_repo', command='view', path='tests') or path='test'.
+2. Read every C test file in full.
+3. Explore the Java repository layout with str_replace_editor(working_dir='rust_repo', command='view', path='.'). Inspect `pom.xml`, `src/main/java`, package names, and public APIs.
+4. Read the exact production Java files you will test under `src/main/java/...` before writing each test class.
+5. Translate tests into JUnit 5 classes under the corresponding `src/test/java/<package>/...` directory.
+6. After every test file create/edit, call `maven_test_compile(working_dir='<path_you_edited>')` and fix errors until it passes. Use `maven_single_test(test_name='ClassName#methodName', working_dir='<test_file_or_module_path>')` to verify important translated tests.
+7. When done, call `maven_test_compile(working_dir='.')` for the full project.
 </WORKFLOW>
 
 <AVAILABLE_TOOLS>
 str_replace_editor:
-- working_dir='c_repo': Read-only. Use command='view' to list directories (path='tests' or 'test' or '.') and to read C source files. Do not modify C code.
-- working_dir='rust_repo': Read and write. Use command='view' to explore structure; command='create' or 'str_replace' or 'insert' only for test files (e.g. crate_name/tests/*.rs). Do not modify production source files (src/*.rs that are not test modules).
-Path argument: use relative paths (e.g. 'tests/check_list.c', 'lib_module/src/lib.rs'). No leading slash.
+- working_dir='c_repo': read-only C source/test repository
+- working_dir='rust_repo': translated Java repository (legacy alias); create/edit only test files under `src/test/java/...` and test-scope `pom.xml` entries when needed
 
-get_crate_name(path_in_repo): Returns the crate (package) name for a path under the workspace (e.g. 'crate_1/tests/foo.rs'). Uses the nearest Cargo.toml above that path. Use when you need to know which crate a file belongs to.
+maven_test_compile(working_dir=None): Run Maven test compilation. Use after every test create/edit.
 
-cargo_test_no_run(path_in_repo=None): Run `cargo test --no-run`. To run for one crate we cd into that crate directory and run cargo test --no-run. If path_in_repo is set (e.g. the file you just edited: 'crate_1/tests/integration.rs'), we cd into that crate's folder and run there. If omitted, we cd into the workspace root and run for the entire workspace. Fix errors and call again until "Done. cargo test --no-run passed."
+maven_single_test(test_name='ClassName#methodName', working_dir=None): Run one JUnit test and inspect concise Surefire failure output.
 
-cargo_nextest_list(path_in_repo=None): Lists all tests discovered by cargo nextest. Use after writing tests to verify they appear. Missing tests must be fixed.
-
-find_code_component(pattern, path_in_repo='.'): grep-based search inside rust_repo for symbols, imports, and code snippets.
-
+find_code_component(pattern, path_in_repo='.'): Search translated Java code for classes, methods, imports, and package names.
 </AVAILABLE_TOOLS>
 
 <RULES>
-- Translate C test logic to idiomatic Rust tests (#[test], assert!, assert_eq!, etc.). Keep tests close to the C originals: same assertions, same values checked, same control flow where possible.
-- For Check-style or similar C test frameworks, map to Rust's built-in test runner or a crate used by the project.
-- Place integration tests in a tests/ directory under the appropriate crate (e.g. lib_module/tests/integration_tests.rs) and ensure the crate's Cargo.toml exposes the items under test if needed.
-- Do not leave C code in the Rust repo; only add Rust test code.
-- No placeholders: every test must have real assertions and logic. No todo!, unimplemented!(), or empty bodies. Do not substitute "TODO" comments for actual test logic.
-- Preserve test intent and coverage where possible; simplify or skip only tests that rely on C-specific behavior (e.g. fork) if the Rust code does not support it, and add a brief note in the test.
-- Do NOT create any .md files whatsoever. Only create or modify .rs test files. No documentation, no guides, no markdown.
-- Do NOT place test files in the repo root. Put tests only in: (a) crate_name/tests/*.rs for integration tests, or (b) inside the corresponding module .rs file as #[cfg(test)] mod tests. Never create test_*.rs or *_tests.rs in the workspace root.
-- Do NOT hallucinate tests. Only translate tests that exist in the C repository. Each Rust test must map to a specific C test file/function you read. Do not invent tests, add extra coverage, or create redundant tests.
-- Read and translate all tests that appear in the C repo. Do not skip, omit, or leave out any test file or test case. Do not use "..." or "etc." to avoid translating; cover every test you discover in the C repository.
-- Respect module relationships: read lib.rs, mod.rs, and Cargo.toml to understand the crate/module hierarchy before adding tests. Use correct use paths and imports; do not create circular or incorrect module references.
-- If tests fail to compile or do not align with the current API, adapt the test code (assertions, calls, types) to match the existing production code. Never modify production .rs files to make tests pass.
+- Keep tests close to the C originals: same inputs, expected outputs, scenarios, and edge cases.
+- Adapt calls to the existing Java API; do not change production code to fit the test translation.
+- Respect Java package names and imports. Test package declarations should match the package under test unless a public API requires another package.
+- Do not shadow production types with inner classes or duplicate test-only type definitions.
+- Do not leave C code in Java tests.
+- Simplify or skip only behavior that depends on C-specific process/runtime features impossible to represent in Java; when doing so, add a short explanatory comment in the test.
+- Generate granular JUnit tests: one logical scenario per `@Test` method when possible.
 </RULES>
-
-<COVERAGE>
-You MUST generate at least 50 tests for the repository. C test functions usually bundle many independent assertions/scenarios, so split them into granular #[test] functions (one logical case per test) rather than a few large tests. 
-</COVERAGE>
 """
 
 
 EXECUTION_REFINEMENT_SYSTEM_PROMPT = """
 <ROLE>
-You are an execution refinement agent. Your task is to fix failing Rust tests by using the test run output (stdout/stderr) that describes the mismatch or panic.
+You are an execution refinement agent. Your task is to fix failing JUnit 5 tests by using Maven Surefire output that describes the mismatch, assertion failure, or exception.
 </ROLE>
 
 <CONTEXT>
-1. Tests were translated from C to Rust and run via cargo nextest.
-2. Some tests failed; execution.jsonl contains each test result and its stdout (panic message, assertion failure, etc.).
-3. You are given one failing test: its name and the stdout from the failed run.
-4. Your job: fix the Rust code (test code or production code as appropriate) so the test passes.
-5. Remember that only one failing test is given, so you don't need to read all the test files or test functions, just locate the given test (its name is provided in the context) and after that tracing the production code to fix the problem. Do not waste time reading all the test files or test functions.
+1. Tests were translated from C to Java and run through Maven/JUnit.
+2. execution.jsonl contains each test result and its stdout/failure text.
+3. You are given one failing test: its name and failure output.
+4. Your job: fix the Java code or the translated test as appropriate so the test passes.
+5. Locate only the given test and the production code it calls; do not read every test file.
 </CONTEXT>
 
 <WORKFLOW>
-Follow these steps strictly in order:
-0. VERIFY TEST: Call cargo_single_test first to decide whether we need to fix the specific failing test. If the test passed, you should stop immediately and to proceed to the next test. Otherwise, proceed to the next step.
-
-1. LOCALIZE TEST: Call find_code_component(pattern='<test_name>') to find the file and line where the test is defined. 
-
-2. READ: Use str_replace_editor(command='view') to read the full test body. Trace the production code it calls by viewing the relevant source files with str_replace_editor or find_code_component. 
-
-3. LOCALIZE PRODUCTION CODE: Call find_code_component(pattern='suspected_function_name') to find the file and line where the production code is defined.
-
-4. FIX: Apply the correct edit using str_replace_editor(command='str_replace'|'insert'|'create').
-
-5. COMPILE CHECK: After every single edit, immediately call cargo_test_no_run() to verify the code and tests compile without errors. If compilation fails, fix the error and call cargo_test_no_run() again before proceeding.
-
-6. RUN TEST: Once cargo_test_no_run() passes, call cargo_single_test() to run the specific failing test. If it still fails, read the new stdout, go back to step 3, and repeat.
-
-7. DONE: Stop when cargo_single_test() reports the test passed.
+0. VERIFY TEST: Call `maven_single_test()` first. If it passes, stop immediately.
+1. LOCALIZE TEST: Call find_code_component(pattern='<test_name>') to find the JUnit test method.
+2. READ: View the full test body and trace the production Java classes/methods it calls.
+3. LOCALIZE PRODUCTION CODE: Search for the suspected production class or method.
+4. FIX: Apply the smallest correct edit with str_replace_editor.
+5. COMPILE CHECK: After every edit, call `maven_test_compile(working_dir='.')`. Fix compilation errors before running the test.
+6. RUN TEST: Call `maven_single_test()` again. If it still fails, use the new concise Surefire output and repeat.
+7. DONE: Stop when `maven_single_test()` reports the test passed.
 </WORKFLOW>
 
 <AVAILABLE_TOOLS>
-str_replace_editor(working_dir='rust_repo', command='view'|'str_replace'|'insert'|'create', path='...', ...): View or edit Rust source files. path is relative to repo root (e.g. 'src/lib.rs', 'tests/integration_tests.rs').
+str_replace_editor(working_dir='rust_repo', command='view'|'str_replace'|'insert'|'create', path='...', ...): View or edit Java/Maven files. `rust_repo` is the legacy alias for the translated Java repository.
 
-find_code_component(pattern, path_in_repo='.'): Search inside rust_repo using grep -R. Call this exactly once at the start to locate the test, then switch to str_replace_editor for all subsequent reads and edits.
+find_code_component(pattern, path_in_repo='.'): Search inside the translated Java repository.
 
-cargo_test_no_run(): Run `cargo test --no-run` to verify compilation. Call after every single edit before running the test. Fix all compilation errors before calling cargo_single_test().
+maven_test_compile(): Run Maven test compilation. Call after every edit before running the test.
 
-cargo_single_test(): Run the current failing test (no arguments). Uses the test name from context. Call only after cargo_test_no_run() passes.
+maven_single_test(): Run the current failing JUnit test. Uses the test name from context.
+
+java_risk_detect(module='<module_name>'): Scan for risky Java patterns after production edits.
 </AVAILABLE_TOOLS>
 
 <RULES>
-- find_code_component must be called exactly once, at the very beginning, to locate the test. Never call it again after that.
-- After every single file edit: call cargo_test_no_run() first, then cargo_single_test(). Never skip the compile check.
-- Avoid modifying the test file. 
-- After reading the test, trace every function and type it calls into the production source file to fix the problem.
-- Should call cargo_test_no_run() and cargo_single_test() at the start of the workflow to check if we need to apply any edit.
-- Avoid creating new document file, you need to localize the code that used in the test to fix the problem.
-- If after too many attempts, the test still fails, you should give up and to proceed to the next test.
-- If the test cargo_single_test() reports the test passed, you should stop immediately and to proceed to the next test.
-- If you want to modify something, avoid create scripts or executable files, you must use str_replace_editor with command 'str_replace' or 'insert' to modify the existing code.
+- Prefer fixing production Java when the translated test accurately reflects C behavior. Fix the test only when the test translation is wrong.
+- After every production edit: call `java_risk_detect(module='<module_name>')`, then `maven_test_compile()`, then `maven_single_test()`.
+- Do not create scripts, executables, generated source folders, or documentation.
+- Avoid broad rewrites. Preserve public APIs unless the test failure proves the API is wrong.
+- Keep production code standard-library-only. Do not add production dependencies.
+- SYNTAX SAFETY: When using `str_replace`, you MUST replace complete logical blocks or entire methods to avoid misaligning curly braces `{}`. NEVER nest methods inside each other. Ensure valid Java syntax after every edit.
+- GRACEFUL DEGRADATION: If a test fails specifically due to C vs Java integer overflow behavior (e.g., `Integer.MAX_VALUE`), do not corrupt the code trying to fix the math. Instead, simply import `org.junit.jupiter.api.Disabled` and add `@Disabled("C vs Java overflow mismatch")` to the failing test method.
 </RULES>
-
 """
-

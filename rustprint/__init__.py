@@ -8,7 +8,4 @@ __version__ = "1.0.0"
 __author__ = "RustPrint Contributors"
 __license__ = "MIT"
 
-from rustprint.cli.main import cli
-
-__all__ = ["cli", "__version__"]
-
+__all__ = ["__version__"]

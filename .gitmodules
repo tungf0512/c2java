@@ -1,0 +1,9 @@
+[submodule "libcbor"]
+	path = libcbor
+	url = https://github.com/PJK/libcbor.git
+[submodule "libyaml"]
+	path = libyaml
+	url = https://github.com/yaml/libyaml.git
+[submodule "stb"]
+	path = stb
+	url = https://github.com/nothings/stb.git

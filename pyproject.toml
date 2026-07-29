@@ -41,7 +41,7 @@ dependencies = [
     "openai>=1.107.0",
     "pydantic>=2.11.7",
     "pydantic-settings>=2.10.1",
-    "pydantic-ai>=1.0.6",
+    "pydantic-ai>=1.0.6,<2",
     "requests>=2.32.4",
     "python-dotenv>=1.1.1",
     "rich>=14.1.0",
@@ -130,4 +130,3 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --cov=rustprint --cov-report=term-missing"
-

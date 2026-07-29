@@ -8,6 +8,7 @@ and function definitions across multiple programming languages.
 from typing import List, Dict
 
 DEFAULT_IGNORE_PATTERNS = {
+    "tests",
     ".github",
     ".vscode",
     ".git",

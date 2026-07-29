@@ -3,28 +3,32 @@ import os
 import subprocess
 from pathlib import Path
 
-from rustprint.src.translation.execution_revisor.temp_to_execution import convert_temp_to_execution_and_result
+from rustprint.src.translation.execution_revisor.temp_to_execution import convert_surefire_reports_to_execution_and_result
 
 logger = logging.getLogger(__name__)
 
 
-def _run_nextest(repo_path: Path) -> None:
+def _has_maven_modules(repo_path: Path) -> bool:
+    pom = repo_path / "pom.xml"
+    if not pom.is_file():
+        return False
+    try:
+        text = pom.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return "<modules>" in text and "</modules>" in text
+
+
+def _run_maven_tests(repo_path: Path) -> None:
     env = os.environ.copy()
-    env["RUST_BACKTRACE"] = "full"
-    env["NEXTEST_EXPERIMENTAL_LIBTEST_JSON"] = "1"
-    temp_path = repo_path / "temp.jsonl"
+    temp_path = repo_path / "temp.log"
+    cmd = ["mvn", "-q", "-Dstyle.color=never"]
+    if _has_maven_modules(repo_path):
+        cmd.append("-fae")
+    cmd.append("test")
     with open(temp_path, "w") as handle:
         subprocess.run(
-            [
-                "cargo",
-                "nextest",
-                "run",
-                "--no-fail-fast",
-                "--message-format",
-                "libtest-json-plus",
-                "--jobs",
-                "2",
-            ],
+            cmd,
             cwd=str(repo_path),
             env=env,
             stdout=handle,
@@ -35,18 +39,18 @@ def _run_nextest(repo_path: Path) -> None:
 
 def _process_repo(repo_path: Path) -> None:
     name = repo_path.name
-    if not (repo_path / "Cargo.toml").is_file():
-        logger.info("Skip %s (no Cargo.toml)", name)
+    if not (repo_path / "pom.xml").is_file():
+        logger.info("Skip %s (no pom.xml)", name)
         return
     if (repo_path / "result.json").is_file():
         logger.info("Skip %s (result.json exists)", name)
         return
 
     logger.info("--- %s ---", name)
-    if not (repo_path / "temp.jsonl").is_file():
-        _run_nextest(repo_path)
+    if not (repo_path / "temp.log").is_file():
+        _run_maven_tests(repo_path)
     try:
-        convert_temp_to_execution_and_result(repo_path / "temp.jsonl")
+        convert_surefire_reports_to_execution_and_result(repo_path)
     except Exception as exc:
         logger.warning("Conversion failed for %s: %s", name, exc)
 

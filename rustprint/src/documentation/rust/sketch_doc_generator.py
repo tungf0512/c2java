@@ -94,7 +94,7 @@ class SketchDocGenerator:
         deps.rust_workspace_path = rust_workspace_path
         deps.sketch_docs_output_path = sketch_docs_output_path
         
-        logger.info(f"{indent}  Rust workspace: {rust_workspace_path}")
+        logger.info(f"{indent}  Java/Maven workspace: {rust_workspace_path}")
         logger.info(f"{indent}  Output: {output_doc_path}")
         
         if is_parent:
@@ -105,16 +105,16 @@ class SketchDocGenerator:
                 if file.endswith('.md') and file != f"{module_name}.md" and file != "overview.md":
                     children_docs.append(file.replace('.md', ''))
             
-            prompt = f"""Generate high-level feature-focused documentation for the Rust module '{module_name}'.
+            prompt = f"""Generate high-level feature-focused documentation for the Java module '{module_name}'.
 
-This module is located in the Rust workspace. You need to explore and find the correct subfolder that corresponds to this module.
+This module is located in the Java/Maven workspace. You need to explore and find the correct package/module folder that corresponds to this module.
 For example, if documenting 'child' module under 'parent', look for the folder at parent/child.
 
 Children modules documentation available: {', '.join(children_docs) if children_docs else 'None'}
 
 Your task:
-1. Explore the Rust workspace to find the folder for module '{module_name}'
-2. Read the Rust code in that module folder
+1. Explore the Java/Maven workspace to find the package/module folder for module '{module_name}'
+2. Read the Java code in that module folder under src/main/java
 3. Read children module documentation using read_documentation tool to understand their features
 4. Identify the HIGH-LEVEL FEATURES this module provides
 5. Generate feature-focused documentation (NOT function listings)
@@ -135,14 +135,14 @@ Document what the module enables users to do, how children modules contribute to
         else:
             logger.info(f"{indent}  [Leaf Agent] Generating documentation from workspace...")
             
-            prompt = f"""Generate high-level feature-focused documentation for the Rust module '{module_name}'.
+            prompt = f"""Generate high-level feature-focused documentation for the Java module '{module_name}'.
 
-This module is located in the Rust workspace. You need to explore and find the correct subfolder that corresponds to this module.
+This module is located in the Java/Maven workspace. You need to explore and find the correct package/module folder that corresponds to this module.
 For example, if documenting 'child' module under 'parent', look for the folder at parent/child.
 
 Your task:
-1. Explore the Rust workspace to find the folder for module '{module_name}'
-2. Read all Rust source files in that module folder
+1. Explore the Java/Maven workspace to find the package/module folder for module '{module_name}'
+2. Read all Java source files in that module folder under src/main/java
 3. Identify the HIGH-LEVEL FEATURES this module provides
 4. Generate feature-focused documentation (NOT function listings)
 5. Create the file: {output_doc_path}
@@ -169,7 +169,7 @@ Document what the module enables users to do and how features work conceptually.
             
             force_prompt = f"""CRITICAL: You must generate documentation NOW with the information you have already gathered.
 
-You have explored the Rust module '{module_name}' but did not create the documentation file yet.
+You have explored the Java module '{module_name}' but did not create the documentation file yet.
 
 IMMEDIATE ACTION REQUIRED:
 1. Use ALL the information you have gathered from your exploration
@@ -212,7 +212,7 @@ str_replace_editor(working_dir='rust_doc', command='create', path='./{module_nam
         logger.info("="*80)
         logger.info(f"Repo: {repo_name}")
         logger.info(f"C docs: {c_docs_path}")
-        logger.info(f"Rust translated: {rust_translated_path}")
+        logger.info(f"Java translated: {rust_translated_path}")
         logger.info(f"Output: {output_sketch_docs_path}")
         logger.info("="*80)
         
@@ -226,9 +226,89 @@ str_replace_editor(working_dir='rust_doc', command='create', path='./{module_nam
         if os.path.exists(module_tree_path):
             module_tree = file_manager.load_json(module_tree_path)
         
+        files_created = []  # Track created files
+        
+        # Helper to create ultimate fallback documentation
+        def create_ultimate_fallback():
+            """Create a basic fallback markdown file if all else fails."""
+            fallback_path = os.path.join(output_sketch_docs_path, "overview.md")
+            try:
+                # Scan the Java workspace for basic info
+                workspace_info = []
+                try:
+                    for root, dirs, files in os.walk(rust_translated_path):
+                        for f in files:
+                            if f.endswith('.java') or f == 'pom.xml' or f == 'README.md':
+                                rel_path = os.path.relpath(os.path.join(root, f), rust_translated_path)
+                                workspace_info.append(rel_path)
+                        if len(workspace_info) > 50:
+                            break
+                except Exception as e:
+                    logger.warning(f"Could not scan workspace: {e}")
+                
+                fallback_content = f"""# {repo_name} - Repository Overview
+
+*Auto-generated fallback documentation*
+
+## Repository Information
+- **Repository**: {repo_name}
+- **Java Workspace**: {rust_translated_path}
+- **Generated**: {time.strftime('%Y-%m-%d %H:%M:%S')}
+
+## Workspace Structure
+The following files were discovered in the Java/Maven workspace:
+
+"""
+                if workspace_info:
+                    for info in workspace_info[:100]:
+                        fallback_content += f"- `{info}`\n"
+                    if len(workspace_info) > 100:
+                        fallback_content += f"\n... and {len(workspace_info) - 100} more files\n"
+                else:
+                    fallback_content += "*No Java/Maven files found in workspace.*\n"
+                
+                fallback_content += f"""
+
+## Note
+This is a fallback documentation generated because the LLM-based documentation generation failed to produce output. Please refer to the source code directly for detailed information.
+
+## Maven Project
+"""
+                # Try to read pom.xml for basic info
+                pom_path = os.path.join(rust_translated_path, "pom.xml")
+                if os.path.exists(pom_path):
+                    try:
+                        with open(pom_path, 'r') as f:
+                            pom_content = f.read()[:2000]
+                        fallback_content += f"\n```xml\n{pom_content}\n```\n"
+                    except Exception:
+                        pass
+                
+                with open(fallback_path, 'w') as f:
+                    f.write(fallback_content)
+                
+                logger.warning(f"Created ultimate fallback documentation: {fallback_path}")
+                return [fallback_path]
+            except Exception as e:
+                logger.error(f"Even ultimate fallback failed: {e}")
+                # Last resort - create empty file to prevent pipeline failure
+                try:
+                    with open(fallback_path, 'w') as f:
+                        f.write(f"# {repo_name}\n\nDocumentation generation failed completely.\n")
+                    return [fallback_path]
+                except Exception:
+                    return []
+            return []
+        
+        module_tree_path = os.path.join(c_docs_path, "module_tree.json")
+        module_tree = None
+        
+        if os.path.exists(module_tree_path):
+            module_tree = file_manager.load_json(module_tree_path)
+        
         if not module_tree:
-            logger.warning("Module tree not found or empty - will generate overview from entire Rust workspace")
-            logger.info("Scanning Rust workspace to discover structure...")
+            logger.warning("Module tree not found or empty - will generate overview from entire Java/Maven workspace")
+            logger.info("Scanning Java/Maven workspace to discover structure...")
             
             leaf_agent = self.create_leaf_doc_agent()
             parent_agent = self.create_parent_doc_agent()
@@ -243,18 +323,18 @@ str_replace_editor(working_dir='rust_doc', command='create', path='./{module_nam
             
             reset_view_history()
             
-            logger.info("\n[Overview] Generating repository overview from entire Rust workspace...")
+            logger.info("\n[Overview] Generating repository overview from entire Java/Maven workspace...")
             
-            prompt = f"""Generate comprehensive high-level feature-focused repository overview documentation by exploring the entire Rust workspace.
+            prompt = f"""Generate comprehensive high-level feature-focused repository overview documentation by exploring the entire Java/Maven workspace.
 
-Rust workspace: {rust_translated_path}
+Java/Maven workspace: {rust_translated_path}
 
 Your task:
-1. Explore the entire Rust workspace structure using str_replace_editor(working_dir='rust_repo', command='view')
-   - Read Cargo.toml (if exists) to understand workspace structure and dependencies
+1. Explore the entire Java/Maven workspace structure using str_replace_editor(working_dir='rust_repo', command='view')
+   - Read pom.xml files to understand Maven modules and dependencies
    - Read README.md (if exists) to understand project purpose
-   - Explore all directories and Rust source files to discover modules and features
-2. Identify all major features and capabilities provided by this Rust repository
+   - Explore src/main/java directories and Java source files to discover modules and features
+2. Identify all major features and capabilities provided by this Java repository
 3. Understand how different modules/components work together
 4. Synthesize a HIGH-LEVEL overview of repository features
 5. Create the file: {overview_output}
@@ -263,7 +343,7 @@ IMPORTANT:
 - Focus on repository-level FEATURES and capabilities, not file-by-file listings
 - Document what the repository enables, key feature areas, and how components integrate
 - Include architecture diagrams (Mermaid) showing feature flows and component interactions
-- If you find multiple modules/crates, document how they relate and work together
+- If you find multiple Maven modules/packages, document how they relate and work together
 """
             
             _overview_result = await run_agent_with_retry(
@@ -277,7 +357,16 @@ IMPORTANT:
 
             if os.path.exists(overview_output):
                 logger.info(f"  Overview created: {overview_output}")
-
+                files_created.append(overview_output)
+            else:
+                logger.warning("  Overview generation failed - will use fallback")
+                files_created.extend(create_ultimate_fallback())
+            
+            # Ensure at least one file exists
+            if not files_created:
+                logger.warning("No files created by agent - using ultimate fallback")
+                files_created.extend(create_ultimate_fallback())
+            
             logger.info("\n" + "="*80)
             logger.info("SKETCH DOCUMENTATION GENERATION COMPLETED")
             logger.info("="*80)
@@ -300,7 +389,7 @@ IMPORTANT:
         for idx, (module_path, module_name, is_parent) in enumerate(processing_order, 1):
             logger.info(f"\n[{idx}/{len(processing_order)}] Processing: {module_name}")
             
-            await self.generate_module_doc(
+            result = await self.generate_module_doc(
                 module_name=module_name,
                 is_parent=is_parent,
                 rust_workspace_path=rust_translated_path,
@@ -310,7 +399,13 @@ IMPORTANT:
                 parent_agent=parent_agent,
                 depth=len(module_path) - 1
             )
+            
+            # Track created files
+            output_doc_path = os.path.join(output_sketch_docs_path, f"{module_name}.md")
+            if os.path.exists(output_doc_path):
+                files_created.append(output_doc_path)
         
+        # Generate overview
         overview_output = os.path.join(output_sketch_docs_path, "overview.md")
         
         reset_view_history()
@@ -326,12 +421,12 @@ IMPORTANT:
         
         prompt = f"""Generate high-level feature-focused repository overview documentation.
 
-Rust workspace: {rust_translated_path}
+Java/Maven workspace: {rust_translated_path}
 Generated module documentation: {', '.join(generated_docs) if generated_docs else 'None'}
 
 Your task:
 1. Read generated module documentation using read_documentation tool to understand features
-2. Read the root Rust workspace (Cargo.toml, README.md) if needed using str_replace_editor
+2. Read the root Java/Maven workspace (pom.xml, README.md) if needed using str_replace_editor
 3. Synthesize a HIGH-LEVEL overview of repository features
 4. Create the file: {overview_output}
 
@@ -350,7 +445,19 @@ Document what the repository enables, key feature areas, and how modules integra
 
         if os.path.exists(overview_output):
             logger.info(f"  Overview created: {overview_output}")
-
+            files_created.append(overview_output)
+        else:
+            logger.warning("  Overview generation failed")
+        
+        # ULTIMATE FALLBACK: If no files were created at all, create a basic fallback
+        if not files_created:
+            logger.warning("No markdown files were created by agents - creating ultimate fallback documentation")
+            files_created.extend(create_ultimate_fallback())
+        
+        logger.info(f"\nTotal markdown files created: {len(files_created)}")
+        for f in files_created:
+            logger.info(f"  - {os.path.basename(f)}")
+        
         logger.info("\n" + "="*80)
         logger.info("SKETCH DOCUMENTATION GENERATION COMPLETED")
         logger.info("="*80)

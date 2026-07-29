@@ -14,6 +14,7 @@ from rustprint.cli.config_manager import ConfigManager, expand_path, resolve_pro
 from rustprint.cli.git_manager import GitManager
 from rustprint.cli.help import ColorCommand
 from rustprint.cli.utils.errors import ConfigurationError, RepositoryError, handle_error
+from rustprint.src.config import resolve_llm_settings
 
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
@@ -71,9 +72,35 @@ def _find_final_execution_repo(cache_project_dir: Path, project_name: str, max_r
     base = cache_project_dir / "translated_repos" / "execution-aware"
     for version in range(max_round, -1, -1):
         candidate = base / f"version_{version}" / project_name
-        if (candidate / "Cargo.toml").is_file():
+        if (candidate / "pom.xml").is_file():
             return candidate
     return None
+
+
+def _find_latest_execution_test_repo(cache_project_dir: Path, project_name: str, max_round: int) -> Path | None:
+    base = cache_project_dir / "translated_repos" / "execution-aware"
+    for version in range(max_round, -1, -1):
+        candidate = base / f"version_{version}" / project_name
+        if (candidate / "src" / "test" / "java").is_dir():
+            return candidate
+    return None
+
+
+def _overlay_translated_tests(final_dst: Path, cache_project_dir: Path, project_name: str, execution_rounds: int) -> None:
+    test_src_repo = _find_latest_execution_test_repo(cache_project_dir, project_name, execution_rounds)
+    if test_src_repo is None:
+        return
+
+    test_src = test_src_repo / "src" / "test" / "java"
+    if not test_src.is_dir():
+        return
+
+    test_dst = final_dst / "src" / "test" / "java"
+    test_dst.parent.mkdir(parents=True, exist_ok=True)
+
+    if test_dst.exists():
+        shutil.rmtree(test_dst)
+    shutil.copytree(test_src, test_dst)
 
 
 def _materialize_final_repo(cache_project_dir: Path, output_base_dir: Path, project_name: str, execution_rounds: int, used_execution: bool) -> Path:
@@ -89,6 +116,8 @@ def _materialize_final_repo(cache_project_dir: Path, output_base_dir: Path, proj
 
     final_dst = resolve_project_dir(output_base_dir, project_name)
     _copy_tree(final_src, final_dst)
+    if used_execution:
+        _overlay_translated_tests(final_dst, cache_project_dir, project_name, execution_rounds)
     return final_dst
 
 
@@ -111,9 +140,12 @@ def _configure_optional_branch(source_path: Path, git_config: dict) -> None:
 
 def _build_pipeline_env(project_config: dict, cache_project_dir: Path, source_repos_dir: Path) -> dict[str, str]:
     env = os.environ.copy()
-    model = str(project_config["model"]["name"])
-    api_key = str(project_config["api"].get("api_key") or "")
-    base_url = str(project_config["api"].get("base_url") or "")
+    base_url, api_key, model, _ = resolve_llm_settings(
+        base_url=str(project_config["api"].get("base_url") or ""),
+        api_key=str(project_config["api"].get("api_key") or ""),
+        main_model=str(project_config["model"]["name"]),
+        cluster_model=str(project_config["model"]["name"]),
+    )
 
     env.update(
         {
@@ -182,10 +214,14 @@ def migrate_command(host: str, port: int, no_web: bool, force: bool):
         if not _has_c_files(source_path):
             raise RepositoryError(f"No C source or header files found in {source_path}")
 
-        api_key = str(project_config["api"].get("api_key") or "")
-        base_url = str(project_config["api"].get("base_url") or "")
+        base_url, api_key, model, _ = resolve_llm_settings(
+            base_url=str(project_config["api"].get("base_url") or ""),
+            api_key=str(project_config["api"].get("api_key") or ""),
+            main_model=str(project_config["model"]["name"]),
+            cluster_model=str(project_config["model"]["name"]),
+        )
         if not api_key or not base_url:
-            raise ConfigurationError("api.api_key and api.base_url must be configured before migration.")
+            raise ConfigurationError("LLM api_key and base_url must be configured before migration.")
 
         cache_project_dir = resolve_project_dir(expand_path(str(project_config["output"]["cache"])), project_name)
         output_base_dir = expand_path(str(project_config["output"]["base_dir"]))
@@ -309,7 +345,7 @@ def migrate_command(host: str, port: int, no_web: bool, force: bool):
                 httpd.shutdown()
             return
 
-        click.secho(f"\nMigration completed. Final Rust repo: {final_path}", fg="green", bold=True)
+        click.secho(f"\nMigration completed. Final Java repo: {final_path}", fg="green", bold=True)
         if httpd is not None and url:
             click.echo("Live tracker still running at " + click.style(url, fg="cyan", bold=True) + " — press Ctrl-C to exit.")
             try:

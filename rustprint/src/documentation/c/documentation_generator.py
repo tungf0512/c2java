@@ -7,6 +7,7 @@ import traceback
 
 # Configure logging and monitoring
 logger = logging.getLogger(__name__)
+DOCGEN_TIMEOUT_SECONDS = 180
 
 # Local imports
 from rustprint.src.dependency_analyzer import DependencyGraphBuilder
@@ -78,11 +79,19 @@ class DocumentationGenerator:
         
         def collect_modules(tree: Dict[str, Any], path: List[str]):
             for module_name, module_info in tree.items():
+                components = module_info.get("components") or []
+                children = module_info.get("children") or {}
+                if not components and not children:
+                    logger.info(
+                        "[get_processing_order @ documentation_generator.py] Skipping empty module placeholder: %s",
+                        "/".join(path + [module_name]),
+                    )
+                    continue
                 current_path = path + [module_name]
                 
                 # If this module has children, process them first
-                if module_info.get("children") and isinstance(module_info["children"], dict) and module_info["children"]:
-                    collect_modules(module_info["children"], current_path)
+                if children and isinstance(children, dict):
+                    collect_modules(children, current_path)
                     # Add this parent module after its children
                     processing_order.append((current_path, module_name))
                 else:
@@ -261,7 +270,7 @@ class DocumentationGenerator:
         # logger.info("="*80)
         
         try:
-            parent_docs = call_llm(prompt, self.config)
+            parent_docs = call_llm(prompt, self.config, timeout_seconds=DOCGEN_TIMEOUT_SECONDS)
             
             # Parse and save parent documentation
             parent_content = parent_docs.split("<OVERVIEW>")[1].split("</OVERVIEW>")[0].strip()
@@ -292,7 +301,8 @@ class DocumentationGenerator:
             
             if os.path.exists(first_module_tree_path):
                 logger.debug(f"Module tree found at {first_module_tree_path}")
-                module_tree = file_manager.load_json(first_module_tree_path)
+                module_tree = clean_empty_children(file_manager.load_json(first_module_tree_path))
+                file_manager.save_json(module_tree, first_module_tree_path)
             else:
                 logger.debug(f"Module tree not found at {module_tree_path}, clustering modules")
                 module_tree = cluster_modules(top_files, components, self.config)

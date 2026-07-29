@@ -9,12 +9,8 @@ logger = logging.getLogger(__name__)
 
 from rustprint.src.agent_tools.deps import TestTransDeps
 from rustprint.src.agent_tools.str_replace_editor import str_replace_editor_tool
-from rustprint.src.agent_tools.cargo_test_no_run import (
-    cargo_test_no_run_tool,
-    cargo_nextest_list_tool,
-    get_crate_name_tool,
-    parse_rust_workspace_crates,
-)
+from rustprint.src.agent_tools.maven_test_compile import maven_test_compile_tool
+from rustprint.src.agent_tools.maven_single_test import maven_single_test_tool
 from rustprint.src.agent_tools.find_code_component import find_code_component_tool
 from rustprint.src.llm_services import create_main_model
 from rustprint.src.agent_retry import run_agent_with_retry
@@ -59,7 +55,7 @@ class TestTransOrchestrator:
             self.model,
             name="TestTrans",
             deps_type=TestTransDeps,
-            tools=[str_replace_editor_tool, cargo_test_no_run_tool, cargo_nextest_list_tool, get_crate_name_tool, find_code_component_tool],
+            tools=[str_replace_editor_tool, maven_test_compile_tool, maven_single_test_tool, find_code_component_tool],
             system_prompt=TEST_TRANS_PROMPT,
             retries=2,
             end_strategy='early',
@@ -74,32 +70,12 @@ class TestTransOrchestrator:
         start = time.time()
         log_info(f"Test translation: {repo_name}", "translate_tests_for_repo")
         log_info(f"  C repo: {c_repo_path}", "translate_tests_for_repo")
-        log_info(f"  Rust repo: {rust_repo_path}", "translate_tests_for_repo")
+        log_info(f"  Java repo: {rust_repo_path}", "translate_tests_for_repo")
 
-        workspace_info = parse_rust_workspace_crates(Path(rust_repo_path))
-        crates = workspace_info["crates"]
-        is_workspace = workspace_info["is_workspace"]
+        project_section = """\
+The translated repository is a Java/Maven project. Inspect root `pom.xml`, any child module `pom.xml` files, and `src/main/java/...` to determine package names and public APIs.
 
-        if is_workspace:
-            crate_lines = "\n".join(
-                f"  - crate_name='{c['name']}', dir='{c['dir']}'" for c in crates
-            )
-            crate_section = f"""\
-The Rust repository is a WORKSPACE with {len(crates)} crate(s):
-{crate_lines}
-
-For each C test file you read, inspect its #include directives and the name of the C file being tested to determine which Rust crate it targets. Then place translated tests inside THAT crate's directory:
-  - Integration test → '<matching_crate_dir>/tests/<file>.rs'
-  - Unit test        → #[cfg(test)] mod tests inside the relevant source file in '<matching_crate_dir>/src/...'
-Never write test files at the workspace root (e.g. do NOT create 'tests/foo.rs' or 'test_foo.rs' directly at the top level of the repo)."""
-        else:
-            crate = crates[0] if crates else {"dir": ".", "name": repo_name}
-            crate_section = f"""\
-The Rust repository is a SINGLE CRATE (no workspace members):
-  - crate_name='{crate['name']}', root dir='.'
-
-Integration tests go into 'tests/<file>.rs' (at the repo root, which IS the crate root).
-Unit tests go as #[cfg(test)] mod tests blocks inside the corresponding 'src/...' files."""
+Place every translated JUnit 5 test under `src/test/java/<matching/package>/...` in the appropriate Maven module. Never put tests in `src/main/java`, never embed tests in production classes, and never write test files at the repository root."""
 
         c_test_entries = _list_c_test_entries(Path(c_repo_path))
         if c_test_entries:
@@ -119,30 +95,28 @@ Unit tests go as #[cfg(test)] mod tests blocks inside the corresponding 'src/...
         )
 
         agent = self.create_test_trans_agent()
-        prompt = f"""Generate tests from the C repository to the Rust repository for '{repo_name}'. YOU MUST ENSURE there are at least 50 tests for the repo.
+        prompt = f"""Generate JUnit 5 tests from the C repository to the translated Java repository for '{repo_name}'. YOU MUST ENSURE there are at least 50 tests for the repo when the C suite contains enough independent scenarios.
 
 
-=== RUST CRATE STRUCTURE ===
-{crate_section}
+=== JAVA/MAVEN PROJECT STRUCTURE ===
+{project_section}
 
 === C TEST FILES (pre-scanned) ===
 {c_test_hint}
 
 === WORKFLOW ===
-Translate tests from the C repository to the Rust repository for '{repo_name}'.
+Translate tests from the C repository to the Java repository for '{repo_name}'.
 
 1. Use str_replace_editor(working_dir='c_repo', command='view', path='tests') or path='test' to discover C test files. If neither exists, try path='.' and look for test-related directories. List all test files and plan to translate every one.
 2. Read every C test file carefully and in full with str_replace_editor(working_dir='c_repo', command='view', path='<relative path>') to understand its test structure, assertions, inputs, and expected outputs before translating.
-3. Use str_replace_editor(working_dir='rust_repo', command='view', path='.') to explore the Rust repo layout. For each C test file, inspect its #include directives and the C file under test to identify which Rust module/crate it maps to.
-4. Translate the tests into the matching Rust crate/module. Do not translate too many at a single time to avoid technical debt — only 5-7 tests, verify they work, then continue.
-5. When encountering an issue, avoid creating a new file (such as current_test_fix.rs); fix the issue in the current test file instead.
-6. For each test in C repository, you must choose placement based on its properties:
-- (1) Tests that exercise internal logic of a single module → insert directly into the corresponding source file as a #[cfg(test)] mod tests {{ #[test] fn ... }} block.
-- (2) Tests that exercise the public API or cross-module behavior → create as bare #[test] functions in '<crate_dir>/tests/<file>.rs'. Do NOT add a #[cfg(test)] wrapper around integration test files. You may create multiple test files for the same crate. The name of the file should be related to functionality of the test. You can create multiple test file, should not append a lot of tests in a single file.
-Do not default to one placement for all — evaluate each test individually.
-- For each test, use the inputs and expected outputs from the C test as the reference. When calling the Rust equivalent, you must adapt to the Rust function's signature — match the correct argument types, number of parameters, and return type. Convert or cast them as needed to be compatible with the Rust API.
-- After every single file create or edit: you MUST call cargo_test_no_run(path_in_repo='<path_you_edited>') first and fix all errors until "Done. cargo test --no-run passed." Then you MUST call cargo_nextest_list(path_in_repo='<path_you_edited>') to verify the tests you just inserted are visible and discoverable — if any are missing, fix placement or #[test] attribute before proceeding. Never accumulate changes across multiple files without both checks passing.
-7. When done with all test files, call cargo_test_no_run() with no arguments. If errors, fix and call again until "Done. cargo test --no-run passed."
+3. Use str_replace_editor(working_dir='rust_repo', command='view', path='.') to explore the Java/Maven layout. Treat working_dir='rust_repo' as the legacy alias for the translated Java repository.
+4. BEFORE writing each JUnit class, read the exact production Java file(s) under `src/main/java/...` that define the API under test. Use `view` or `find_code_component` to confirm package names, class names, record names, method signatures, and whether values are exposed through record accessors like `x()` instead of fields like `x`.
+5. Translate tests into JUnit 5 classes under the matching `src/test/java/<package>/...` directory. Do not translate too many at a single time — only 5-7 tests, verify they compile, then continue.
+6. If JUnit 5 is missing, update `pom.xml` with JUnit Jupiter only under `<scope>test</scope>`.
+7. For each test, use the inputs and expected outputs from the C test as the reference. Adapt calls to the Java API's exact class names, package names, argument types, return types, and record accessors.
+8. Never invent inner classes or test-only stand-ins for production types. Import and use the real generated Java classes.
+9. After every single test file create or edit: call maven_test_compile(working_dir='<path_you_edited>') and fix all errors until "Done. Maven test-compile passed." Use maven_single_test(test_name='ClassName#methodName', working_dir='<path_you_edited>') for representative translated tests.
+10. When done with all test files, call maven_test_compile(working_dir='.') for the full project. If errors remain, fix and call again until it passes.
 """
 
         try:

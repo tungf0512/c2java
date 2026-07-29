@@ -9,7 +9,7 @@ from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.models.openai import OpenAIModelSettings
 from openai import OpenAI
 
-from rustprint.src.config import Config
+from rustprint.src.config import Config, resolve_llm_settings
 
 logger = logging.getLogger(__name__)
 
@@ -77,8 +77,10 @@ def _resolve_endpoint_for_model(model: str, base_url: str, api_key: str) -> tupl
 
 
 def _normalize_model_name(model: str, base_url: str) -> str:
-    if model.startswith('gpt-') and base_url and 'api.openai.com' not in base_url:
-        return f'openai/{model}'
+    if "atlascloud" in base_url.lower():
+        return model
+    if model.startswith("openai/"):
+        return model.split("/", 1)[1]
     return model
 
 
@@ -154,22 +156,31 @@ def _chat_completion_with_token_fallback(
     )
 
 
-def create_main_model(config: Config):
+def create_main_model(config: Config, timeout_seconds: float | None = None):
     """Create the main LLM model from configuration."""
-    logger.info(f"[create_main_model] model={config.main_model}  base_url={config.llm_base_url}")
+    resolved_base_url, resolved_api_key, resolved_model, _ = resolve_llm_settings(
+        base_url=config.llm_base_url,
+        api_key=config.llm_api_key,
+        main_model=config.main_model,
+        cluster_model=config.cluster_model,
+    )
+    logger.info(f"[create_main_model] model={resolved_model}  base_url={resolved_base_url}")
 
-    aliased_model = _resolve_model_alias(config.main_model)
+    aliased_model = _resolve_model_alias(resolved_model)
     effective_base_url, effective_api_key = _resolve_endpoint_for_model(
         aliased_model,
-        config.llm_base_url,
-        config.llm_api_key,
+        resolved_base_url,
+        resolved_api_key,
     )
     normalized_name = _normalize_model_name(aliased_model, effective_base_url)
-    if normalized_name != config.main_model:
-        logger.info(f"[create_main_model] Normalized model name: {config.main_model} -> {normalized_name}")
+    if normalized_name != resolved_model:
+        logger.info(f"[create_main_model] Normalized model name: {resolved_model} -> {normalized_name}")
 
     try:
-        http_client = httpx.AsyncClient(event_hooks={'request': [_log_first_request]})
+        http_client = httpx.AsyncClient(
+            event_hooks={'request': [_log_first_request]},
+            timeout=timeout_seconds,
+        )
         openai_async_client = openai_lib.AsyncOpenAI(
             base_url=effective_base_url,
             api_key=effective_api_key,
@@ -192,11 +203,23 @@ def create_main_model(config: Config):
 
 
 
-def create_openai_client(config: Config, base_url: str | None = None, api_key: str | None = None) -> OpenAI:
+def create_openai_client(
+    config: Config,
+    base_url: str | None = None,
+    api_key: str | None = None,
+    timeout_seconds: float | None = None,
+) -> OpenAI:
     """Create OpenAI client from configuration."""
-    return OpenAI(
+    resolved_base_url, resolved_api_key, _, _ = resolve_llm_settings(
         base_url=base_url or config.llm_base_url,
-        api_key=api_key or config.llm_api_key
+        api_key=api_key or config.llm_api_key,
+        main_model=config.main_model,
+        cluster_model=config.cluster_model,
+    )
+    return OpenAI(
+        base_url=resolved_base_url,
+        api_key=resolved_api_key,
+        timeout=timeout_seconds,
     )
 
 
@@ -204,7 +227,8 @@ def call_llm(
     prompt: str,
     config: Config,
     model: str = None,
-    temperature: float = 0.0
+    temperature: float = 0.0,
+    timeout_seconds: float | None = None,
 ) -> str:
     """
     Call LLM with the given prompt.
@@ -221,12 +245,19 @@ def call_llm(
     """
     if model is None:
         model = config.main_model
+    resolved_base_url, resolved_api_key, resolved_model, _ = resolve_llm_settings(
+        base_url=config.llm_base_url,
+        api_key=config.llm_api_key,
+        main_model=model,
+        cluster_model=config.cluster_model,
+    )
+    model = resolved_model
 
     aliased_model = _resolve_model_alias(model)
     effective_base_url, effective_api_key = _resolve_endpoint_for_model(
         aliased_model,
-        config.llm_base_url,
-        config.llm_api_key,
+        resolved_base_url,
+        resolved_api_key,
     )
     normalized_model = _normalize_model_name(aliased_model, effective_base_url)
 
@@ -241,7 +272,12 @@ def call_llm(
         logger.info(f"[FIRST API REQUEST] {json.dumps(preview, indent=2)}")
 
     if is_openai_model(aliased_model):
-        client = create_openai_client(config, base_url=effective_base_url, api_key=effective_api_key)
+        client = create_openai_client(
+            config,
+            base_url=effective_base_url,
+            api_key=effective_api_key,
+            timeout_seconds=timeout_seconds,
+        )
         response = _chat_completion_with_token_fallback(
             client=client,
             model=normalized_model,
@@ -253,7 +289,12 @@ def call_llm(
         logger.info(f"[llm] response model: {returned_model}")
         return response.choices[0].message.content
 
-    client = create_openai_client(config, base_url=effective_base_url, api_key=effective_api_key)
+    client = create_openai_client(
+        config,
+        base_url=effective_base_url,
+        api_key=effective_api_key,
+        timeout_seconds=timeout_seconds,
+    )
     response = _chat_completion_with_token_fallback(
         client=client,
         model=normalized_model,

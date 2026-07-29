@@ -68,10 +68,16 @@ def is_complex_module(components: dict, core_component_ids: list) -> bool:
 # ---------------------- Token Counting ---------------------
 # ------------------------------------------------------------
 
-enc = tiktoken.encoding_for_model("gpt-4")
+try:
+    enc = tiktoken.encoding_for_model("gpt-4")
+except Exception as exc:
+    logger.warning("Could not load tiktoken encoding; falling back to approximate token counts: %s", exc)
+    enc = None
 
 def count_tokens(text: str) -> int:
     """Count the number of tokens in a text."""
+    if enc is None:
+        return max(1, len(text) // 4)
     return len(enc.encode(text))
 
 

@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>C to Java Code Migration Report - Documentation Guided</title>
+    <!-- Highlight.js for code syntax highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+    <!-- Marked.js for markdown rendering -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.2/marked.min.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #0d1117;
+            color: #c9d1d9;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+        header {
+            background-color: #161b22;
+            border-bottom: 1px solid #30363d;
+            padding: 15px 30px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-shrink: 0;
+        }
+        header h1 {
+            margin: 0;
+            font-size: 20px;
+            color: #f0f6fc;
+        }
+        .selector-container {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        label {
+            font-size: 14px;
+            color: #8b949e;
+        }
+        select {
+            background-color: #21262d;
+            color: #c9d1d9;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            padding: 8px 16px;
+            font-size: 14px;
+            cursor: pointer;
+            outline: none;
+        }
+        select:focus {
+            border-color: #58a6ff;
+        }
+        .content-container {
+            display: flex;
+            flex-direction: row;
+            flex-grow: 1;
+            overflow: hidden;
+            width: 100%;
+        }
+        .pane {
+            width: 33.33%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .pane-border {
+            border-right: 1px solid #30363d;
+        }
+        .pane-header {
+            background-color: #161b22;
+            padding: 10px 20px;
+            font-size: 13px;
+            font-weight: 600;
+            border-bottom: 1px solid #30363d;
+            color: #8b949e;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .pane-header span.lang {
+            background-color: #21262d;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            color: #58a6ff;
+        }
+        .pane-body {
+            flex-grow: 1;
+            overflow: auto;
+            margin: 0;
+            padding: 0;
+            background-color: #0d1117;
+        }
+        pre {
+            margin: 0;
+            padding: 20px;
+            font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
+            font-size: 12.5px;
+            line-height: 1.5;
+        }
+        code {
+            background: transparent !important;
+            padding: 0 !important;
+        }
+        .markdown-body {
+            padding: 25px;
+            font-size: 14px;
+            line-height: 1.6;
+            color: #c9d1d9;
+            background-color: #0d1117;
+        }
+        .markdown-body h1, .markdown-body h2, .markdown-body h3 {
+            color: #f0f6fc;
+            border-bottom: 1px solid #21262d;
+            padding-bottom: 5px;
+            margin-top: 24px;
+        }
+        .markdown-body code {
+            background-color: #21262d !important;
+            padding: 2px 6px !important;
+            border-radius: 6px;
+            font-family: monospace;
+        }
+        .markdown-body ul {
+            padding-left: 20px;
+        }
+        .file-pair {
+            display: none;
+            width: 100%;
+            height: 100%;
+        }
+        .file-pair.active {
+            display: flex;
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>Documentation-Guided Codebase Migration Lifecycle</h1>
+    <div class="selector-container">
+        <label for="workflow-selector">Select Migration Workflow:</label>
+        <select id="workflow-selector" onchange="switchWorkflow(this.value)">
+            <option value="model">Workflow 1: Core Models (Structs -> Blueprint -> Java Classes)</option>
+            <option value="serialization">Workflow 2: Serialization Logic (C Code -> Specification -> Java Serializer)</option>
+            <option value="test">Workflow 3: Verification (cmocka uint_test.c -> Test Mapping -> JUnit 5 CborUintTest)</option>
+            <option value="test-negint">Workflow 4: Verification (cmocka negint_test.c -> Test Mapping -> JUnit 5 CborNegintTest)</option>
+            <option value="test-unicode">Workflow 5: Verification (cmocka unicode_test.c -> Test Mapping -> JUnit 5 CborUnicodeTest)</option>
+        </select>
+    </div>
+</header>
+
+<div class="content-container">
+    <!-- WORKFLOW 1: MODEL -->
+    <div id="workflow-model" class="file-pair active">
+        <!-- 1. Legacy C Code -->
+        <div class="pane pane-border">
+            <div class="pane-header">
+                <span>cbor/data.h (Legacy C model)</span>
+                <span class="lang">C</span>
+            </div>
+            <div class="pane-body">
+                <pre><code class="language-c">/** Specifies the Major type of ::cbor_item_t */
+typedef enum cbor_type {
+  CBOR_TYPE_UINT /** 0 - positive integers */,
+  CBOR_TYPE_NEGINT /** 1 - negative integers*/,
+  CBOR_TYPE_BYTESTRING /** 2 - byte strings */,
+  CBOR_TYPE_STRING /** 3 - strings */,
+  CBOR_TYPE_ARRAY /** 4 - arrays */,
+  CBOR_TYPE_MAP /** 5 - maps */,
+  CBOR_TYPE_TAG /** 6 - tags  */,
+  CBOR_TYPE_FLOAT_CTRL /** 7 - decimals and special values */
+} cbor_type;
+
+/** The item handle */
+typedef struct cbor_item_t {
+  /** Discriminated by type */
+  union cbor_item_metadata metadata;
+  /** Reference count - initialize to 0 */
+  size_t refcount;
+  /** Major type discriminator */
+  cbor_type type;
+  /** Raw data block - interpretation depends on metadata */
+  unsigned char* data;
+} cbor_item_t;</code></pre>
+            </div>
+        </div>
+        <!-- 2. DocGen Blueprint -->
+        <div class="pane pane-border">
+            <div class="pane-header">
+                <span>IMPLEMENTATION_PLAN.md (Core Model Specification)</span>
+                <span class="lang">Blueprint</span>
+            </div>
+            <div class="pane-body markdown-body" id="doc-model">
+# Core Model Specifications
+
+### `CborItem.java`
+- Base abstraction for all CBOR values.
+- Holds common behavior: type, structural equality, encoded size, serialization dispatch, and container accessors.
+- Implemented as an abstract `class` because most CBOR values have behavior and nested child relationships during compilation.
+
+### `CborType.java`
+- Enum representing CBOR major types:
+  - `UNSIGNED_INTEGER` (Major type 0)
+  - `NEGATIVE_INTEGER` (Major type 1)
+  - `BYTE_STRING` (Major type 2)
+  - `TEXT_STRING` (Major type 3)
+  - `ARRAY` (Major type 4)
+  - `MAP` (Major type 5)
+  - `TAG` (Major type 6)
+  - `FLOAT_OR_CTRL` (Major type 7)
+            </div>
+        </div>
+        <!-- 3. Migrated Java Code -->
+        <div class="pane">
+            <div class="pane-header">
+                <span>CborItem.java (Migrated Java API)</span>
+                <span class="lang">Java</span>
+            </div>
+            <div class="pane-body">
+                <pre><code class="language-java">package com.migration.generated.libcbor.model;
+
+import com.migration.generated.libcbor.serialization.CborSerializer;
+
+public abstract class CborItem {
+    public abstract CborType type();
+
+    public abstract CborItem deepCopy();
+
+    public CborItem deepCopyDefinite() {
+        return deepCopy();
+    }
+
+    public final int encodedSize() {
+        return CborSerializer.serializedSize(this);
+    }
+
+    public final byte[] serialize() {
+        return CborSerializer.serialize(this);
+    }
+
+    public final boolean structurallyEqual(CborItem other) {
+        return equals(other);
+    }
+}</code></pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- WORKFLOW 2: SERIALIZATION -->
+    <div id="workflow-serialization" class="file-pair">
+        <!-- 1. Legacy C Code -->
+        <div class="pane pane-border">
+            <div class="pane-header">
+                <span>cbor/serialization.c (Legacy C serializer dispatch)</span>
+                <span class="lang">C</span>
+            </div>
+            <div class="pane-body">
+                <pre><code class="language-c">size_t cbor_serialize(const cbor_item_t* item, unsigned char* buffer,
+                      size_t buffer_size) {
+  CBOR_ASSERT_VALID_TYPE(cbor_typeof(item));
+  switch (cbor_typeof(item)) {
+    case CBOR_TYPE_UINT:
+      return cbor_serialize_uint(item, buffer, buffer_size);
+    case CBOR_TYPE_NEGINT:
+      return cbor_serialize_negint(item, buffer, buffer_size);
+    case CBOR_TYPE_BYTESTRING:
+      return cbor_serialize_bytestring(item, buffer, buffer_size);
+    case CBOR_TYPE_STRING:
+      return cbor_serialize_string(item, buffer, buffer_size);
+    case CBOR_TYPE_ARRAY:
+      return cbor_serialize_array(item, buffer, buffer_size);
+    case CBOR_TYPE_MAP:
+      return cbor_serialize_map(item, buffer, buffer_size);
+    case CBOR_TYPE_TAG:
+      return cbor_serialize_tag(item, buffer, buffer_size);
+    case CBOR_TYPE_FLOAT_CTRL:
+      return cbor_serialize_float_ctrl(item, buffer, buffer_size);
+    default:
+      return 0;
+  }
+}</code></pre>
+            </div>
+        </div>
+        <!-- 2. DocGen Blueprint -->
+        <div class="pane pane-border">
+            <div class="pane-header">
+                <span>IMPLEMENTATION_PLAN.md (Serialization Specification)</span>
+                <span class="lang">Blueprint</span>
+            </div>
+            <div class="pane-body markdown-body" id="doc-serialization">
+# Serialization Components
+
+### `CborSerializer.java`
+- Performs size calculations and byte stream generation.
+- Decoupled from core items, converting instances of `CborItem` into raw bytes.
+- Fully supports definite/indefinite layouts for strings and array/map containers.
+- Throws checked `CborSerializationException` upon serializing malformed items (e.g. Tag without items).
+            </div>
+        </div>
+        <!-- 3. Migrated Java Code -->
+        <div class="pane">
+            <div class="pane-header">
+                <span>CborSerializer.java (Migrated Java Serializer)</span>
+                <span class="lang">Java</span>
+            </div>
+            <div class="pane-body">
+                <pre><code class="language-java">package com.migration.generated.libcbor.serialization;
+
+import com.migration.generated.libcbor.CborSerializationException;
+import com.migration.generated.libcbor.encoding.CborEncoder;
+import com.migration.generated.libcbor.model.*;
+import java.io.ByteArrayOutputStream;
+
+public final class CborSerializer {
+    public static byte[] serialize(CborItem item) {
+        ByteArrayOutputStream out = new ByteArrayOutputStream(serializedSize(item));
+        write(item, out);
+        return out.toByteArray();
+    }
+
+    public static int serializedSize(CborItem item) {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        write(item, out);
+        return out.size();
+    }
+
+    private static void write(CborItem item, ByteArrayOutputStream out) {
+        if (item instanceof CborUnsignedInteger value) {
+            writeUnsignedWithWidth(out, 0, value.value(), value.width());
+        } else if (item instanceof CborNegativeInteger value) {
+            writeUnsignedWithWidth(out, 1, value.encodedMagnitude(), value.width());
+        } // ... (rest of implementation follows spec rules)
+    }
+}</code></pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- WORKFLOW 3: TEST MAPPING -->
+    <div id="workflow-test" class="file-pair">
+        <!-- 1. Legacy C Code -->
+        <div class="pane pane-border">
+            <div class="pane-header">
+                <span>test/uint_test.c (Legacy C cmocka unit tests)</span>
+                <span class="lang">C</span>
+            </div>
+            <div class="pane-body">
+                <pre><code class="language-c">unsigned char data1[] = {0x02, 0xFF};
+
+static void test_very_short_int(void** _state _CBOR_UNUSED) {
+  number = cbor_load(data1, 2, &res);
+  assert_true(cbor_typeof(number) == CBOR_TYPE_UINT);
+  assert_true(cbor_int_get_width(number) == CBOR_INT_8);
+  assert_true(cbor_isa_uint(number));
+  assert_true(cbor_get_uint8(number) == 2);
+  cbor_decref(&number);
+}</code></pre>
+            </div>
+        </div>
+        <!-- 2. DocGen Blueprint -->
+        <div class="pane pane-border">
+            <div class="pane-header">
+                <span>tests.md (Test Suite Translation Specification)</span>
+                <span class="lang">Blueprint</span>
+            </div>
+            <div class="pane-body markdown-body" id="doc-test">
+# Test Mapping Specifications
+
+### `uint_test.c` &rarr; `CborUintTest.java`
+- Translates core unsigned integer decoding test routines from `cmocka` into clean JUnit 5 equivalent test blocks.
+- Maps `cbor_load` and assertions on `CBOR_TYPE_UINT` directly to `Cbor.loadPartial` and assertions on `CborUnsignedInteger`.
+- Handles platform-specific memory boundaries gracefully (e.g. skips or annotates 64-bit unsigned boundary mismatches with `@Disabled`).
+            </div>
+        </div>
+        <!-- 3. Migrated Java Code -->
+        <div class="pane">
+            <div class="pane-header">
+                <span>CborUintTest.java (Migrated JUnit 5 test class)</span>
+                <span class="lang">Java</span>
+            </div>
+            <div class="pane-body">
+                <pre><code class="language-java">package com.migration.generated.libcbor;
+
+import com.migration.generated.libcbor.model.CborItem;
+import com.migration.generated.libcbor.model.CborType;
+import com.migration.generated.libcbor.model.CborUnsignedInteger;
+import com.migration.generated.libcbor.model.CborWidth;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+class CborUintTest {
+    private static final byte[] data1 = {0x02, (byte) 0xFF};
+
+    @Test
+    void testVeryShortInt() {
+        CborItem number = Cbor.loadPartial(data1, 0, 2).item();
+        Assertions.assertEquals(CborType.UNSIGNED_INTEGER, number.type());
+        Assertions.assertTrue(number instanceof CborUnsignedInteger);
+        CborUnsignedInteger uint = (CborUnsignedInteger) number;
+        Assertions.assertEquals(CborWidth.ZERO, uint.width());
+        Assertions.assertEquals(2L, uint.value());
+    }
+}</code></pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- WORKFLOW 4: NEGINT TEST -->
+    <div id="workflow-test-negint" class="file-pair">
+        <!-- 1. Legacy C Code -->
+        <div class="pane pane-border">
+            <div class="pane-header">
+                <span>test/negint_test.c (Legacy C cmocka unit tests)</span>
+                <span class="lang">C</span>
+            </div>
+            <div class="pane-body">
+                <pre><code class="language-c">unsigned char data1[] = {0x22, 0xFF};
+
+static void test_very_short_int(void** _state _CBOR_UNUSED) {
+  number = cbor_load(data1, 2, &res);
+  assert_true(cbor_typeof(number) == CBOR_TYPE_NEGINT);
+  assert_true(cbor_int_get_width(number) == CBOR_INT_8);
+  assert_false(cbor_isa_uint(number));
+  assert_true(cbor_isa_negint(number));
+  assert_true(cbor_get_uint8(number) == 2);
+  cbor_decref(&number);
+}</code></pre>
+            </div>
+        </div>
+        <!-- 2. DocGen Blueprint -->
+        <div class="pane pane-border">
+            <div class="pane-header">
+                <span>tests.md (Test Suite Translation Specification)</span>
+                <span class="lang">Blueprint</span>
+            </div>
+            <div class="pane-body markdown-body" id="doc-test-negint">
+# Negative Integer Test Specifications
+
+### `negint_test.c` &rarr; `CborNegintTest.java`
+- Translates negative integer parsing tests.
+- Verifies major type `CBOR_TYPE_NEGINT` and mapped Java equivalent `CborNegativeInteger`.
+- Asserts correctness of the encoded magnitude vs. the negative Java long value representation (`-1 - magnitude`).
+            </div>
+        </div>
+        <!-- 3. Migrated Java Code -->
+        <div class="pane">
+            <div class="pane-header">
+                <span>CborNegintTest.java (Migrated JUnit 5 test class)</span>
+                <span class="lang">Java</span>
+            </div>
+            <div class="pane-body">
+                <pre><code class="language-java">package com.migration.generated.libcbor;
+
+import com.migration.generated.libcbor.model.CborItem;
+import com.migration.generated.libcbor.model.CborType;
+import com.migration.generated.libcbor.model.CborNegativeInteger;
+import com.migration.generated.libcbor.model.CborWidth;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+class CborNegintTest {
+    private static final byte[] data1 = {0x22, (byte) 0xFF};
+
+    @Test
+    void testVeryShortInt() {
+        CborItem number = Cbor.loadPartial(data1, 0, 2).item();
+        Assertions.assertEquals(CborType.NEGATIVE_INTEGER, number.type());
+        Assertions.assertTrue(number instanceof CborNegativeInteger);
+        CborNegativeInteger negint = (CborNegativeInteger) number;
+        Assertions.assertEquals(CborWidth.ZERO, negint.width());
+        Assertions.assertEquals(2L, negint.encodedMagnitude());
+        Assertions.assertEquals(-3L, negint.value());
+    }
+}</code></pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- WORKFLOW 5: UNICODE TEST -->
+    <div id="workflow-test-unicode" class="file-pair">
+        <!-- 1. Legacy C Code -->
+        <div class="pane pane-border">
+            <div class="pane-header">
+                <span>test/unicode_test.c (Legacy C cmocka unit tests)</span>
+                <span class="lang">C</span>
+            </div>
+            <div class="pane-body">
+                <pre><code class="language-c">#include "../src/cbor/internal/unicode.h"
+struct _cbor_unicode_status status;
+unsigned char missing_bytes_data[] = {0xC4, 0x8C};
+
+static void test_missing_bytes(void** _state _CBOR_UNUSED) {
+  assert_true(_cbor_unicode_codepoint_count(missing_bytes_data, 1, &status) == 0);
+  assert_true(status.status == _CBOR_UNICODE_BADCP);
+  assert_true(status.location == 1);
+}</code></pre>
+            </div>
+        </div>
+        <!-- 2. DocGen Blueprint -->
+        <div class="pane pane-border">
+            <div class="pane-header">
+                <span>tests.md (Test Suite Translation Specification)</span>
+                <span class="lang">Blueprint</span>
+            </div>
+            <div class="pane-body markdown-body" id="doc-test-unicode">
+# Unicode Validation Test Specifications
+
+### `unicode_test.c` &rarr; `CborUnicodeTest.java`
+- Translates unicode validation checks from internal helper headers.
+- Verifies that incomplete sequences throw `IllegalArgumentException` in Java while valid sequences correctly compute codepoints.
+            </div>
+        </div>
+        <!-- 3. Migrated Java Code -->
+        <div class="pane">
+            <div class="pane-header">
+                <span>CborUnicodeTest.java (Migrated JUnit 5 test class)</span>
+                <span class="lang">Java</span>
+            </div>
+            <div class="pane-body">
+                <pre><code class="language-java">package com.migration.generated.libcbor;
+
+import com.migration.generated.libcbor.util.CborUnicode;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+class CborUnicodeTest {
+    private static final byte[] missingBytesData = {(byte) 0xC4, (byte) 0x8C};
+
+    @Test
+    void testMissingBytes() {
+        Assertions.assertThrows(IllegalArgumentException.class, () -> {
+            CborUnicode.validateAndCountCodePoints(new byte[] {missingBytesData[0]});
+        });
+
+        int count = CborUnicode.validateAndCountCodePoints(missingBytesData);
+        Assertions.assertEquals(1, count);
+    }
+}</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function renderMarkdown(id) {
+        const element = document.getElementById(id);
+        if (element) {
+            const rawMarkdown = element.innerHTML;
+            element.innerHTML = marked.parse(rawMarkdown);
+        }
+    }
+
+    function switchWorkflow(value) {
+        document.querySelectorAll('.file-pair').forEach(el => {
+            el.classList.remove('active');
+        });
+        document.getElementById('workflow-' + value).classList.add('active');
+    }
+
+    // Render markdown for all components
+    renderMarkdown('doc-model');
+    renderMarkdown('doc-serialization');
+    renderMarkdown('doc-test');
+    renderMarkdown('doc-test-negint');
+    renderMarkdown('doc-test-unicode');
+
+    // Highlight code blocks
+    hljs.highlightAll();
+</script>
+</body>
+</html>

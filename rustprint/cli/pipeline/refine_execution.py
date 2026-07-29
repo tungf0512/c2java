@@ -105,8 +105,8 @@ def run(version, output_root, creds: PipelineCreds, max_tool_calls: int = 50) ->
             skipped += 1
             continue
 
-        if not (src_repo / "Cargo.toml").is_file():
-            logger.info("Skip %s (no Cargo.toml)", repo_name)
+        if not (src_repo / "pom.xml").is_file():
+            logger.info("Skip %s (no pom.xml)", repo_name)
             skipped += 1
             continue
 

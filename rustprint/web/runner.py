@@ -21,6 +21,7 @@ from rustprint.cli.commands.migrate import (
     _has_source_tests,
     _prepare_single_repo_folder,
 )
+from rustprint.src.config import resolve_llm_settings
 
 logger = logging.getLogger("rustprint")
 
@@ -151,7 +152,13 @@ class MigrationRunner:
             if not _has_c_files(source_path):
                 return False, f"No C source or header files found in {source_path}"
             api = config.get("api") or {}
-            if not str(api.get("api_key") or "").strip() or not str(api.get("base_url") or "").strip():
+            base_url, api_key, _, _ = resolve_llm_settings(
+                base_url=str(api.get("base_url") or ""),
+                api_key=str(api.get("api_key") or ""),
+                main_model=str((config.get("model") or {}).get("name") or ""),
+                cluster_model=str((config.get("model") or {}).get("name") or ""),
+            )
+            if not api_key.strip() or not base_url.strip():
                 return False, "API key and base URL are required"
 
             merged = deep_merge_defaults(config)
@@ -217,7 +224,7 @@ class MigrationRunner:
                             "detail": "",
                             "path": str(trepos / f"version_{r}" / project_name),
                             "children": [
-                                {"id": f"req_round_{r}_docs", "label": "Rust Documentation", "status": "pending", "detail": ""},
+                                {"id": f"req_round_{r}_docs", "label": "Java Documentation", "status": "pending", "detail": ""},
                                 {"id": f"req_round_{r}_refine", "label": "Refinement", "status": "pending", "detail": ""},
                             ],
                         }
@@ -231,7 +238,7 @@ class MigrationRunner:
                             "detail": "",
                             "path": str(trepos / "best_solution" / project_name),
                             "children": [
-                                {"id": "req_final_docs", "label": "Rust Documentation", "status": "pending", "detail": ""},
+                                {"id": "req_final_docs", "label": "Java Documentation", "status": "pending", "detail": ""},
                                 {"id": "req_final_eval", "label": "Final Evaluation", "status": "pending", "detail": ""},
                                 {"id": "req_final_best", "label": "Best Solution Selection", "status": "pending", "detail": ""},
                             ],
@@ -482,9 +489,12 @@ class MigrationRunner:
 
     def _execute(self, cfg: dict, source_path: Path) -> None:
         project_name = source_path.name
-        model = str(cfg["model"]["name"])
-        api_key = str(cfg["api"].get("api_key") or "")
-        base_url = str(cfg["api"].get("base_url") or "")
+        base_url, api_key, model, _ = resolve_llm_settings(
+            base_url=str(cfg["api"].get("base_url") or ""),
+            api_key=str(cfg["api"].get("api_key") or ""),
+            main_model=str(cfg["model"]["name"]),
+            cluster_model=str(cfg["model"]["name"]),
+        )
 
         cache_project_dir = resolve_project_dir(expand_path(str(cfg["output"]["cache"])), project_name)
         output_base_dir = expand_path(str(cfg["output"]["base_dir"]))
@@ -535,12 +545,12 @@ class MigrationRunner:
                 round_id = f"req_round_{version + 1}"
                 self._guard()
                 self._set_child("requirement", round_id, "active")
-                self._set_node(f"{round_id}_docs", "active", timer_label=f"Round {version + 1} · Rust Documentation")
-                self._set_stage("requirement", "active", f"Round {version + 1}/{requirement_rounds}: generate Rust docs")
+                self._set_node(f"{round_id}_docs", "active", timer_label=f"Round {version + 1} · Java Documentation")
+                self._set_stage("requirement", "active", f"Round {version + 1}/{requirement_rounds}: generate Java docs")
                 pipeline.gen_sketch_docs.run(version, cache_project_dir, creds)
                 self._set_stage("requirement", "active", f"Round {version + 1}/{requirement_rounds}: score rubrics")
                 pipeline.eval_sketch.run(version, cache_project_dir, ROOT_DIR, BENCHMARK_DIR, creds)
-                self._set_node(f"{round_id}_docs", "done", timer_label=f"Round {version + 1} · Rust Documentation")
+                self._set_node(f"{round_id}_docs", "done", timer_label=f"Round {version + 1} · Java Documentation")
                 self._set_node(f"{round_id}_refine", "active", timer_label=f"Round {version + 1} · Refinement")
                 self._set_stage("requirement", "active", f"Round {version + 1}/{requirement_rounds}: refine code")
                 pipeline.refine_sketch.run(version, cache_project_dir, creds)
@@ -549,10 +559,10 @@ class MigrationRunner:
                 self._emit_state()
             self._guard()
             self._set_node("req_final", "active", timer_label="Final Evaluation & Selection")
-            self._set_node("req_final_docs", "active", timer_label="Final · Rust Documentation")
-            self._set_stage("requirement", "active", f"Final evaluation (version {requirement_rounds}): generate Rust docs")
+            self._set_node("req_final_docs", "active", timer_label="Final · Java Documentation")
+            self._set_stage("requirement", "active", f"Final evaluation (version {requirement_rounds}): generate Java docs")
             pipeline.gen_sketch_docs.run(requirement_rounds, cache_project_dir, creds)
-            self._set_node("req_final_docs", "done", timer_label="Final · Rust Documentation")
+            self._set_node("req_final_docs", "done", timer_label="Final · Java Documentation")
             self._set_node("req_final_eval", "active", timer_label="Final · Final Evaluation")
             self._set_stage("requirement", "active", f"Final evaluation (version {requirement_rounds}): score rubrics")
             pipeline.eval_sketch.run(requirement_rounds, cache_project_dir, ROOT_DIR, BENCHMARK_DIR, creds)
@@ -578,7 +588,7 @@ class MigrationRunner:
             for version in range(execution_rounds):
                 self._guard()
                 self._set_child("execution", f"exec_round_{version + 1}", "active")
-                self._set_stage("execution", "active", f"Round {version + 1}/{execution_rounds}: run cargo nextest")
+                self._set_stage("execution", "active", f"Round {version + 1}/{execution_rounds}: run Maven tests")
                 pipeline.execute.run(version, cache_project_dir)
                 self._set_stage("execution", "active", f"Round {version + 1}/{execution_rounds}: fix failing tests")
                 pipeline.refine_execution.run(version, cache_project_dir, creds)
@@ -598,7 +608,7 @@ class MigrationRunner:
         final_path = self._finalize(cache_project_dir, output_base_dir, project_name, execution_rounds, used_execution)
         self.final_path = str(final_path)
         self._set_stage("finalize", "done", str(final_path))
-        self._log(f"Migration completed. Final Rust repo: {final_path}")
+        self._log(f"Migration completed. Final Java repo: {final_path}")
 
     def _maybe_branch(self, source_path: Path, git_cfg: dict) -> None:
         if not bool(git_cfg.get("branch_enabled", False)):
@@ -636,4 +646,20 @@ class MigrationRunner:
             shutil.rmtree(final_dst)
         final_dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(final_src, final_dst)
+        if used_execution:
+            test_src_repo = None
+            base = cache_project_dir / "translated_repos" / "execution-aware"
+            for version in range(execution_rounds, -1, -1):
+                candidate = base / f"version_{version}" / project_name
+                if (candidate / "src" / "test" / "java").is_dir():
+                    test_src_repo = candidate
+                    break
+
+            if test_src_repo is not None:
+                test_src = test_src_repo / "src" / "test" / "java"
+                test_dst = final_dst / "src" / "test" / "java"
+                test_dst.parent.mkdir(parents=True, exist_ok=True)
+                if test_dst.exists():
+                    shutil.rmtree(test_dst)
+                shutil.copytree(test_src, test_dst)
         return final_dst

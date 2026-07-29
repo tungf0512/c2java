@@ -9,7 +9,7 @@ from rustprint.cli.pipeline._common import (
     discover_repos,
     docs_dir_for_repo,
 )
-from rustprint.src.translation.code.c2rust_generator import C2RustGenerator
+from rustprint.src.translation.code.c2java_generator import C2JavaGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +64,7 @@ def run_translate(repos_folder, docs_output_dir, translated_output_dir, creds: P
                 "Run the documentation stage first."
             )
 
-        logger.info("Translating %s to Rust skeleton", repo_name)
+        logger.info("Translating %s to Java project", repo_name)
         config = build_config(repo_path, translated_output_dir, creds, docs_dir=docs_repo_path)
-        generator = C2RustGenerator(config)
+        generator = C2JavaGenerator(config)
         asyncio.run(generator.run())

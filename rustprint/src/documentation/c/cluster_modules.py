@@ -9,6 +9,8 @@ from rustprint.src.utils import count_tokens
 from rustprint.src.config import MAX_TOKEN_PER_MODULE, Config
 from rustprint.src.prompt_template import format_cluster_prompt
 
+FAST_TRACK_TIMEOUT_SECONDS = 180
+
 
 def format_top_files_for_prompt(top_files: Dict[str, Any]) -> str:
     formatted = ""
@@ -68,7 +70,12 @@ def cluster_modules(
     logger.info(f"[cluster_modules @ cluster_modules.py] Calling LLM for clustering {num_files} files")
     prompt = format_cluster_prompt(files_list, current_module_tree, current_module_name)
     
-    response = call_llm(prompt, config, model=config.cluster_model)
+    response = call_llm(
+        prompt,
+        config,
+        model=config.cluster_model,
+        timeout_seconds=FAST_TRACK_TIMEOUT_SECONDS,
+    )
     
     logger.info(f"[cluster_modules @ cluster_modules.py] Received LLM response, parsing module tree...")
 

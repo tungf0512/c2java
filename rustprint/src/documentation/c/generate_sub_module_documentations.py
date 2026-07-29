@@ -13,6 +13,7 @@ from rustprint.src.config import MAX_TOKEN_PER_LEAF_MODULE
 
 import logging
 logger = logging.getLogger(__name__)
+DOCGEN_TIMEOUT_SECONDS = 180
 
 
 
@@ -29,7 +30,7 @@ async def generate_sub_module_documentation(
     deps = ctx.deps
     previous_module_name = deps.current_module_name
     
-    model = create_main_model(deps.config)
+    model = create_main_model(deps.config, timeout_seconds=DOCGEN_TIMEOUT_SECONDS)
 
     # add the sub-module to the module tree
     value = deps.module_tree
@@ -79,7 +80,8 @@ async def generate_sub_module_documentation(
                 components=ctx.deps.components,
                 module_tree=ctx.deps.module_tree,
             ),
-            deps=ctx.deps
+            deps=ctx.deps,
+            max_retries=1,
         )
 
         # remove the sub-module name from the path to current module and the module tree

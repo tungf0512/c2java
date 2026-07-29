@@ -21,6 +21,7 @@ from typing import Any, Optional
 from rustprint.cli.models.config import Configuration
 from rustprint.cli.utils.errors import ConfigurationError, FileSystemError
 from rustprint.cli.utils.fs import ensure_directory, safe_read
+from rustprint.src.config import resolve_llm_settings
 
 
 CONFIG_DIR = Path.home() / ".config" / "rustprint"
@@ -159,16 +160,14 @@ class ConfigManager:
         Explicit environment variables take precedence so subprocess-based
         pipeline stages can receive credentials from `rustprint migrate`.
         """
-        env_api_key = os.environ.get("LLM_API_KEY") or os.environ.get("API_KEY")
-        env_base_url = os.environ.get("LLM_BASE_URL") or os.environ.get("BASE_URL")
-        env_model = os.environ.get("MAIN_MODEL") or os.environ.get("MODEL") or ""
+        env_base_url, env_api_key, env_model, env_cluster_model = resolve_llm_settings()
 
         if env_api_key and env_base_url:
             self._api_key = env_api_key
             self._config = Configuration(
                 base_url=env_base_url,
                 main_model=env_model,
-                cluster_model=os.environ.get("CLUSTER_MODEL") or env_model,
+                cluster_model=env_cluster_model,
                 default_output="docs",
             )
             return True
@@ -204,12 +203,18 @@ class ConfigManager:
         execution = data["execution_refinement"]
         output = data["output"]
 
-        self._api_key = os.environ.get("LLM_API_KEY") or api.get("api_key") or None
+        resolved_base_url, resolved_api_key, resolved_main_model, resolved_cluster_model = resolve_llm_settings(
+            base_url=api.get("base_url", ""),
+            api_key=api.get("api_key", ""),
+            main_model=model.get("name", ""),
+            cluster_model=model.get("name", ""),
+        )
+        self._api_key = resolved_api_key or None
         model_name = model.get("name", "")
         self._config = Configuration(
-            base_url=os.environ.get("LLM_BASE_URL") or api.get("base_url", ""),
-            main_model=model_name,
-            cluster_model=model_name,
+            base_url=resolved_base_url,
+            main_model=resolved_main_model or model_name,
+            cluster_model=resolved_cluster_model or resolved_main_model or model_name,
             default_output=output.get("base_dir", "~/rustprint-output"),
             requirement_refine_iterations=int(requirement.get("rounds", 5)),
             max_tool_calls_per_test=50,

@@ -778,9 +778,9 @@ If you cannot find the files you need, work with what you have on.
 
 async def str_replace_editor(
     ctx: RunContext[Union[RustPrintDeps, SketchDocDeps, RefinementDeps, InputGenerationDeps, TestTransDeps, ExecutionRefinementDeps]],
-    working_dir: Literal["c_repo", "c_doc", "rust_repo", "rust_doc"],
-    command: Literal["view", "create", "str_replace", "insert", "undo_edit"],
-    path: str,
+    working_dir: Optional[str] = None,
+    command: Literal["view", "create", "str_replace", "insert", "undo_edit"] = "view",
+    path: str = "",
     file_text: Optional[str] = None,
     view_range: Optional[List[int]] = None,
     old_str: Optional[str] = None,
@@ -810,6 +810,13 @@ async def str_replace_editor(
         new_str: Optional parameter of `str_replace` command containing the new string (if not given, no string will be added). Required parameter of `insert` command containing the string to insert.
     """
     
+    if working_dir is None or working_dir not in ("c_repo", "c_doc", "rust_repo", "rust_doc"):
+        dir_str = str(working_dir or "").lower()
+        if "c_docs" in dir_str or "c_doc" in dir_str or "docs" in dir_str or path.endswith(".md") or "docs/" in path:
+            working_dir = "rust_doc"
+        else:
+            working_dir = "rust_repo"
+
     logger.info("="*80)
     logger.info(f"TOOL CALL: str_replace_editor")
     logger.info(f"  Command: {command}")

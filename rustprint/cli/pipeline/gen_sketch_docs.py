@@ -64,7 +64,7 @@ def run(version, output_root, creds: PipelineCreds) -> None:
 
         if not any(sketch_docs_path.glob("*.md")):
             raise RuntimeError(
-                f"Rust documentation generation produced no markdown files for {repo_name} at {sketch_docs_path}"
+                f"Java documentation generation produced no markdown files for {repo_name} at {sketch_docs_path}"
             )
 
         for filename in _MODULE_TREE_FILES:

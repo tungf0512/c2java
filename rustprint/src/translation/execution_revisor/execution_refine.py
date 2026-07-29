@@ -13,8 +13,9 @@ setup_logging(level=logging.INFO)
 
 from rustprint.src.agent_tools.deps import ExecutionRefinementDeps
 from rustprint.src.agent_tools.str_replace_editor import str_replace_editor_tool
-from rustprint.src.agent_tools.cargo_single_test import cargo_single_test_tool
-from rustprint.src.agent_tools.cargo_test_no_run import cargo_test_no_run_tool
+from rustprint.src.agent_tools.maven_single_test import maven_single_test_tool
+from rustprint.src.agent_tools.maven_test_compile import maven_test_compile_tool
+from rustprint.src.agent_tools.java_risk_detect import java_risk_detect_tool
 from rustprint.src.agent_tools.find_code_component import find_code_component_tool
 from rustprint.src.llm_services import create_main_model
 from rustprint.src.agent_retry import run_agent_with_retry
@@ -69,15 +70,15 @@ def format_execution_user_prompt(test_name: str, path: str = "") -> str:
     if path:
         prompt += f"Path: {path}\n"
     prompt += "\n"
-    prompt += f"Your task is locate ONLY {test_name} (avoiding reading all the test in the files) and after that tracing the production code to fix the problem."
+    prompt += f"Your task is to locate ONLY {test_name} (avoid reading all test files), then trace the Java production code it exercises and fix the problem."
     prompt += "\n"
-    prompt += "Should call cargo_test_no_run() and cargo_single_test() at the start of the workflow to check if we need to apply any edit."
+    prompt += "Call maven_single_test() at the start of the workflow to check whether the test still fails. After edits, call java_risk_detect(), maven_test_compile(), and maven_single_test()."
     prompt += "\n"
-    prompt += " Avoid creating new document file .md, you need to localize the code that used in the test to fix the problem."
+    prompt += "Avoid creating documentation files. Localize the Java code used by the test and fix the smallest correct surface."
     prompt += "\n"
     prompt += "If after too many attempts, the test still fails, you should give up and to proceed to the next test."
     prompt += "\n"
-    prompt += "If the test cargo_single_test() reports the test passed, you should stop immediately and to proceed to the next test."
+    prompt += "If maven_single_test() reports the test passed, stop immediately and proceed to the next test."
     prompt += "\n"
     prompt += "If you want to modify something, avoid create scripts or executable files, you must use str_replace_editor with command 'str_replace' or 'insert' to modify the existing code."
     return prompt
@@ -124,7 +125,7 @@ class ExecutionRefinementOrchestrator:
             self.model,
             name="execution_refinement_agent",
             deps_type=ExecutionRefinementDeps,
-            tools=[str_replace_editor_tool, cargo_single_test_tool, cargo_test_no_run_tool, find_code_component_tool],
+            tools=[str_replace_editor_tool, maven_single_test_tool, maven_test_compile_tool, java_risk_detect_tool, find_code_component_tool],
             system_prompt=EXECUTION_REFINEMENT_SYSTEM_PROMPT,
             retries=2,
             end_strategy="early",

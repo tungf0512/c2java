@@ -88,6 +88,40 @@ class AgentOrchestrator:
                 tools=[read_code_components_tool, str_replace_editor_tool, find_code_component_tool],
                 system_prompt=LEAF_SYSTEM_PROMPT.format(module_name=module_name),
             )
+
+    def _write_fallback_docs(
+        self,
+        docs_path: str,
+        module_name: str,
+        components: Dict[str, Node],
+        core_component_ids: List[str],
+    ) -> None:
+        lines = [
+            f"# {module_name}",
+            "",
+            "Fallback documentation generated from parsed C components.",
+            "",
+            "## Components",
+            "",
+        ]
+        for component_id in core_component_ids:
+            component = components.get(component_id)
+            if component is None:
+                continue
+            lines.extend(
+                [
+                    f"### {component_id}",
+                    "",
+                    f"- Type: `{getattr(component, 'component_type', getattr(component, 'node_type', 'component'))}`",
+                    f"- Source: `{getattr(component, 'relative_path', getattr(component, 'file_path', ''))}`",
+                    "",
+                    "```c",
+                    getattr(component, "source_code", ""),
+                    "```",
+                    "",
+                ]
+            )
+        file_manager.save_text("\n".join(lines), docs_path)
     
     async def process_module(self, module_name: str, components: Dict[str, Node], 
                            core_component_ids: List[str], module_path: List[str], working_dir: str) -> Dict[str, Any]:
@@ -158,7 +192,7 @@ class AgentOrchestrator:
                 logger.info(f"[process_module @ agent_orchestrator.py] Agent completed for module: {module_name} (attempt {attempt})")
                 
                 # Check if the documentation file was actually created
-                if os.path.exists(docs_path):
+                if os.path.exists(docs_path) and os.path.getsize(docs_path) > 0:
                     file_size = os.path.getsize(docs_path)
                     logger.info(f"[process_module @ agent_orchestrator.py] ✓ Documentation file created: {docs_path} ({file_size} bytes)")
                     
@@ -197,16 +231,33 @@ Previous attempt did not create this file. Please ensure you use:
 
 This is attempt {attempt + 1} of {max_retries}. The file MUST be created."""
                     else:
-                        # Final attempt failed - raise error
-                        raise RuntimeError(
-                            f"Agent failed to create documentation file after {max_retries} attempts: {docs_path}. "
-                            f"The agent may be using the wrong working_dir or filename. "
-                            f"Expected: {module_name}.md in working_dir='c_doc' or 'rust_doc'."
+                        logger.warning(
+                            "[process_module @ agent_orchestrator.py] Writing fallback docs after %d failed attempts: %s",
+                            max_retries,
+                            docs_path,
                         )
+                        self._write_fallback_docs(docs_path, module_name, components, core_component_ids)
+                        cleaned_module_tree = clean_empty_children(deps.module_tree)
+                        file_manager.save_json(cleaned_module_tree, module_tree_path)
+                        return cleaned_module_tree
                         
-            except RuntimeError:
+            except RuntimeError as e:
                 # Re-raise RuntimeError (from failed retries)
-                raise
+                if attempt >= max_retries:
+                    logger.warning(
+                        "[process_module @ agent_orchestrator.py] Writing fallback docs after agent exception: %s",
+                        docs_path,
+                    )
+                    self._write_fallback_docs(docs_path, module_name, components, core_component_ids)
+                    cleaned_module_tree = clean_empty_children(deps.module_tree)
+                    file_manager.save_json(cleaned_module_tree, module_tree_path)
+                    return cleaned_module_tree
+                user_prompt = f"""{user_prompt}
+
+Previous attempt failed with: {str(e)}
+
+Retry and create `{module_name}.md` using working_dir='c_doc'."""
+                continue
             except Exception as e:
                 # Handle other exceptions during agent.run()
                 import traceback

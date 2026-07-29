@@ -57,8 +57,8 @@ def _normalize_model_name(model: str, base_url: str) -> str:
     if base_url and "fireworks.ai" in base_url:
         if model in _FIREWORKS_MODEL_ALIASES:
             return _FIREWORKS_MODEL_ALIASES[model]
-    if model.startswith("gpt-") and base_url and "api.openai.com" not in base_url:
-        return f"openai/{model}"
+    if model.startswith("openai/"):
+        return model.split("/", 1)[1]
     return model
 
 
