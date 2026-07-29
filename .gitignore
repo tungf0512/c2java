@@ -61,6 +61,7 @@ nosetests.xml
 docs/_build/
 site/
 .ipynb_checkpoints/
+weekly_report*.md
 
 # IDE, editor, and OS files
 .idea/
