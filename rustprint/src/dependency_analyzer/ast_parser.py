@@ -31,7 +31,7 @@ class DependencyParser:
         
         structure_result = self.analysis_service._analyze_structure(
             self.repo_path, 
-            include_patterns=["stb_dxt.h", "stb_c_lexer.h"],
+            include_patterns=["*.c", "*.h"],
             exclude_patterns=None
         )
         

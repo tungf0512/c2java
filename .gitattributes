@@ -1,0 +1,7 @@
+# core.autocrlf=true would otherwise give these CRLF on checkout, which breaks
+# them inside Linux containers and WSL ("$'\r': command not found").
+*.sh        text eol=lf
+Dockerfile  text eol=lf
+*.yaml      text eol=lf
+*.yml       text eol=lf
+.env.example text eol=lf

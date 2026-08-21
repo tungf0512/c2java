@@ -1,0 +1,20 @@
+.git
+.env
+.env.*
+!.env.example
+.venv
+venv
+.docker-data
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/target
+*.egg-info
+*.log
+
+# Upstream fixture submodules — not needed to run dummy_c_project
+libcbor
+libyaml
+stb

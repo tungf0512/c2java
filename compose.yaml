@@ -1,0 +1,67 @@
+name: c2java
+
+services:
+  c2java:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: c2java-local
+
+    # `rustprint migrate` derives the project name from the current directory
+    # and refuses to run unless it matches source.path in the config.
+    working_dir: /work/source/${C_PROJECT_NAME:-dummy_c_project}
+
+    stdin_open: true
+    tty: true
+
+    environment:
+      # Env credentials take precedence over the [api] section of the config.
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.openai.com/v1}
+      MODEL: ${MODEL:-gpt-5.4}
+      # Retry budget for 429s. Free-tier per-minute quotas need more than the
+      # OpenAI SDK's default of 2.
+      LLM_MAX_RETRIES: ${LLM_MAX_RETRIES:-8}
+      C_PROJECT_NAME: ${C_PROJECT_NAME:-dummy_c_project}
+      REQUIREMENT_REFINEMENT: ${REQUIREMENT_REFINEMENT:-false}
+      REQUIREMENT_ROUNDS: ${REQUIREMENT_ROUNDS:-2}
+      EXECUTION_REFINEMENT: ${EXECUTION_REFINEMENT:-false}
+      EXECUTION_ROUNDS: ${EXECUTION_ROUNDS:-2}
+      TRANSLATE_TESTS: ${TRANSLATE_TESTS:-false}
+
+    ports:
+      - "127.0.0.1:${C2JAVA_WEB_PORT:-5000}:5000"
+
+    volumes:
+      # Live source: edits on Windows apply without rebuilding the image.
+      - type: bind
+        source: .
+        target: /workspace/c2java
+
+      # The C repository to migrate.
+      - type: bind
+        source: ${C_SOURCE_DIR:-./dummy_c_project}
+        target: /work/source/${C_PROJECT_NAME:-dummy_c_project}
+
+      # ~/.config/rustprint/<project>  — project config (TOML, no suffix)
+      - type: bind
+        source: ./.docker-data/config
+        target: /root/.config/rustprint
+
+      # ~/.cache/rustprint/<project>   — docs, intermediate repos, refine logs
+      - type: bind
+        source: ./.docker-data/cache
+        target: /root/.cache/rustprint
+
+      # ~/rustprint-output/<project>   — final Java/Maven project
+      - type: bind
+        source: ./.docker-data/output
+        target: /root/rustprint-output
+
+      # Maven cache in a named volume: heavy IO, nothing worth inspecting.
+      - type: volume
+        source: m2
+        target: /root/.m2
+
+volumes:
+  m2:

@@ -84,6 +84,21 @@ def _normalize_model_name(model: str, base_url: str) -> str:
     return model
 
 
+def _max_retries() -> int:
+    """
+    Retry budget for the OpenAI SDK.
+
+    The SDK honours the `Retry-After` / `retryDelay` a provider returns on 429.
+    Per-minute quota windows (Google AI Studio free tier answers with ~26s) are
+    longer than the SDK's default budget of 2 retries can cover, so the default
+    here is higher. Override with LLM_MAX_RETRIES.
+    """
+    try:
+        return max(0, int(os.getenv('LLM_MAX_RETRIES', '8')))
+    except ValueError:
+        return 8
+
+
 def _preferred_token_field(model_name: str) -> str:
     if model_name.startswith('gpt-5'):
         return 'max_completion_tokens'
@@ -185,6 +200,7 @@ def create_main_model(config: Config, timeout_seconds: float | None = None):
             base_url=effective_base_url,
             api_key=effective_api_key,
             http_client=http_client,
+            max_retries=_max_retries(),
         )
         model = OpenAIModel(
             model_name=normalized_name,
@@ -220,6 +236,7 @@ def create_openai_client(
         base_url=resolved_base_url,
         api_key=resolved_api_key,
         timeout=timeout_seconds,
+        max_retries=_max_retries(),
     )
 
 
